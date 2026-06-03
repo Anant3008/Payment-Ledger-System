@@ -1,0 +1,32 @@
+# Binaries
+/bin/
+/app/
+
+# Build outputs
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go
+vendor/
+coverage.out
+
+# Environment
+.env
+
+# Docker/Postgres data
+/pgdata/
+docker-compose.override.yml
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Built server binary
+server
