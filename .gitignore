@@ -27,6 +27,3 @@ docker-compose.override.yml
 
 # OS
 .DS_Store
-
-# Built server binary
-server
