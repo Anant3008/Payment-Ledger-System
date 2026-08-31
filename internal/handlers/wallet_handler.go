@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Anant3008/payment-ledger-system/internal/services"
 	"github.com/gin-gonic/gin"
@@ -34,4 +35,21 @@ func (h *WalletHandler) Create(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, wallet)
+}
+
+func (h *WalletHandler) Get(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid wallet ID"})
+		return
+	}
+
+	wallet, err := h.service.GetWallet(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, wallet)
 }
