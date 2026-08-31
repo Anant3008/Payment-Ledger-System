@@ -2,9 +2,10 @@ package repository
 
 import (
 	"context"
-	"errors"
+	"database/sql"
 	"fmt"
 
+	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -32,9 +33,15 @@ func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, 
 
 	var dummy int
 	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", firstID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("wallet %d: %w", firstID, apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("lock wallet %d: %w", firstID, err)
 	}
 	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", secondID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("wallet %d: %w", secondID, apperrors.ErrNotFound)
+		}
 		return fmt.Errorf("lock wallet %d: %w", secondID, err)
 	}
 
@@ -44,7 +51,7 @@ func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, 
 		return fmt.Errorf("get sender balance: %w", err)
 	}
 	if senderBalance < amount {
-		return errors.New("insufficient funds")
+		return fmt.Errorf("sender balance %d < amount %d: %w", senderBalance, amount, apperrors.ErrInsufficientFunds)
 	}
 
 	// Update balances

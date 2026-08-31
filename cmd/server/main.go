@@ -34,6 +34,8 @@ func main() {
 	transferHandler := handlers.NewTransferHandler(transferService)
 
 	router := gin.Default()
+	router.Use(handlers.RequestIDMiddleware())
+	router.Use(handlers.ErrorMiddleware())
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {

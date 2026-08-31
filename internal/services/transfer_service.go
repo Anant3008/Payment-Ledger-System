@@ -2,8 +2,9 @@ package services
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
+	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 )
 
@@ -18,10 +19,10 @@ func NewTransferService(transferRepo *repository.TransferRepository) *TransferSe
 // ProcessTransfer validates business rules before passing to the repository for atomic execution.
 func (s *TransferService) ProcessTransfer(ctx context.Context, fromWalletID, toWalletID int, amount int64) error {
 	if amount <= 0 {
-		return errors.New("transfer amount must be greater than zero")
+		return fmt.Errorf("amount must be greater than zero: %w", apperrors.ErrInvalidInput)
 	}
 	if fromWalletID == toWalletID {
-		return errors.New("cannot transfer to the same wallet")
+		return fmt.Errorf("cannot transfer to self: %w", apperrors.ErrInvalidInput)
 	}
 
 	return s.transferRepo.ExecuteTransfer(ctx, fromWalletID, toWalletID, amount)
