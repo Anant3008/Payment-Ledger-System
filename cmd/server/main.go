@@ -46,6 +46,7 @@ func main() {
 
 	// Routes
 	router.POST("/wallets", walletHandler.Create)
+	router.GET("/wallets/:id", walletHandler.Get)
 	router.POST("/transfers", transferHandler.Create)
 
 	addr := cfg.Port

@@ -30,3 +30,8 @@ func (s *WalletService) CreateWallet(ctx context.Context, owner string, initialB
 	}
 	return w, nil
 }
+
+// GetWallet retrieves a wallet by its ID.
+func (s *WalletService) GetWallet(ctx context.Context, id int) (*models.Wallet, error) {
+	return s.repo.GetByID(ctx, id)
+}
