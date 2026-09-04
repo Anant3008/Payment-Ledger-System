@@ -1,10 +1,13 @@
 package repository
 
 import (
-    "context"
+	"context"
+	"database/sql"
+	"fmt"
 
-    "github.com/jmoiron/sqlx"
-    "github.com/Anant3008/payment-ledger-system/internal/models"
+	"github.com/Anant3008/payment-ledger-system/internal/errors"
+	"github.com/Anant3008/payment-ledger-system/internal/models"
+	"github.com/jmoiron/sqlx"
 )
 
 type WalletRepository struct {
@@ -21,7 +24,10 @@ func (r *WalletRepository) Create(ctx context.Context, w *models.Wallet) error {
 func (r *WalletRepository) GetByID(ctx context.Context, id int) (*models.Wallet, error) {
     var w models.Wallet
     if err := r.db.GetContext(ctx, &w, "SELECT id, owner, balance, created_at FROM wallets WHERE id=$1", id); err != nil {
-        return nil, err
+        if err == sql.ErrNoRows {
+            return nil, fmt.Errorf("wallet %d: %w", id, errors.ErrNotFound)
+        }
+        return nil, fmt.Errorf("db get wallet: %w", err)
     }
     return &w, nil
 }

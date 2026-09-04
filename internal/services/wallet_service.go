@@ -2,8 +2,9 @@ package services
 
 import (
 	"context"
-	"errors"
+	"fmt"
 
+	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
 	"github.com/Anant3008/payment-ledger-system/internal/models"
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 )
@@ -19,7 +20,7 @@ func NewWalletService(repo *repository.WalletRepository) *WalletService {
 // CreateWallet validates and creates a new wallet.
 func (s *WalletService) CreateWallet(ctx context.Context, owner string, initialBalance int64) (*models.Wallet, error) {
 	if initialBalance < 0 {
-		return nil, errors.New("initial balance cannot be negative")
+		return nil, fmt.Errorf("initial balance cannot be negative: %w", apperrors.ErrInvalidInput)
 	}
 	w := &models.Wallet{
 		Owner:   owner,

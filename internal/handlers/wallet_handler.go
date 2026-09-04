@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
+	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -24,13 +26,13 @@ type createWalletReq struct {
 func (h *WalletHandler) Create(c *gin.Context) {
 	var req createWalletReq
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(fmt.Errorf("bind json: %w", apperrors.ErrInvalidInput))
 		return
 	}
 
 	wallet, err := h.service.CreateWallet(c.Request.Context(), req.Owner, req.InitialBalance)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.Error(err)
 		return
 	}
 
@@ -41,13 +43,13 @@ func (h *WalletHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid wallet ID"})
+		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
 		return
 	}
 
 	wallet, err := h.service.GetWallet(c.Request.Context(), id)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "wallet not found"})
+		c.Error(err)
 		return
 	}
 
