@@ -37,10 +37,16 @@ func TestAuditService_ReconcileAll(t *testing.T) {
 	a, _ := walletService.CreateWallet(ctx, "Audit-A", 1000) // Not ledgered in V1 logic
 	b, _ := walletService.CreateWallet(ctx, "Audit-B", 500)  // Not ledgered in V1 logic
 	
-	// Record the delta before our operation
+	// Record the delta before our operation for the two wallets created by this test.
+	// This avoids cross-package test interference from other wallets/ledger entries in
+	// the shared integration database.
 	var beforeBalances, beforeLedger int64
-	conn.Get(&beforeBalances, "SELECT COALESCE(SUM(balance), 0) FROM wallets")
-	conn.Get(&beforeLedger, "SELECT COALESCE(SUM(amount), 0) FROM ledger_entries")
+	if err := conn.GetContext(ctx, &beforeBalances, "SELECT COALESCE(SUM(balance), 0) FROM wallets WHERE id = $1 OR id = $2", a.ID, b.ID); err != nil {
+		t.Fatalf("failed to sum wallet balances before transfer: %v", err)
+	}
+	if err := conn.GetContext(ctx, &beforeLedger, "SELECT COALESCE(SUM(amount), 0) FROM ledger_entries WHERE wallet_id = $1 OR wallet_id = $2", a.ID, b.ID); err != nil {
+		t.Fatalf("failed to sum ledger entries before transfer: %v", err)
+	}
 	initialDrift := beforeBalances - beforeLedger
 
 	// Transfer 300
@@ -50,8 +56,12 @@ func TestAuditService_ReconcileAll(t *testing.T) {
 
 	// 3. Verify Delta hasn't changed
 	var afterBalances, afterLedger int64
-	conn.Get(&afterBalances, "SELECT COALESCE(SUM(balance), 0) FROM wallets")
-	conn.Get(&afterLedger, "SELECT COALESCE(SUM(amount), 0) FROM ledger_entries")
+	if err := conn.GetContext(ctx, &afterBalances, "SELECT COALESCE(SUM(balance), 0) FROM wallets WHERE id = $1 OR id = $2", a.ID, b.ID); err != nil {
+		t.Fatalf("failed to sum wallet balances after transfer: %v", err)
+	}
+	if err := conn.GetContext(ctx, &afterLedger, "SELECT COALESCE(SUM(amount), 0) FROM ledger_entries WHERE wallet_id = $1 OR wallet_id = $2", a.ID, b.ID); err != nil {
+		t.Fatalf("failed to sum ledger entries after transfer: %v", err)
+	}
 	finalDrift := afterBalances - afterLedger
 
 	if initialDrift != finalDrift {
