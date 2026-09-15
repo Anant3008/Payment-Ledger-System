@@ -25,9 +25,9 @@ jobs:
           - 5432:5432
         options: >-
           --health-cmd pg_isready
-          --health-interval 10s
+          --health-interval 2s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
 
     steps:
       - name: Checkout Code
@@ -39,15 +39,13 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Install golang-migrate
-        run: |
-          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz | tar xvz
-          sudo mv migrate /usr/local/bin/migrate
-
       - name: Run Database Migrations
         env:
-          DB_URL: postgres://postgres:postgres@localhost:5432/payment_ledger?sslmode=disable
-        run: make migrate-up
+          PGPASSWORD: postgres
+        run: |
+          for f in migrations/*.up.sql; do
+            psql -h localhost -U postgres -d payment_ledger -f "$f"
+          done
 
       - name: Run Tests with Race Detector
         env:
