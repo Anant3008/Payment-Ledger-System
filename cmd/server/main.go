@@ -26,6 +26,7 @@ func main() {
 	transferRepo := repository.NewTransferRepository(conn)
 	ledgerRepo := repository.NewLedgerRepository(conn)
 	txRepo := repository.NewTransactionRepository(conn)
+	idempRepo := repository.NewIdempotencyRepository(conn)
 
 	// 2. Services
 	walletService := services.NewWalletService(walletRepo)
@@ -51,13 +52,17 @@ func main() {
 	})
 
 	// Routes
-	router.POST("/wallets", walletHandler.Create)
+	mutating := router.Group("/")
+	mutating.Use(handlers.IdempotencyMiddleware(idempRepo))
+
+	mutating.POST("/wallets", walletHandler.Create)
+	mutating.POST("/wallets/:id/deposit", walletHandler.Deposit)
+	mutating.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	mutating.POST("/transfers", transferHandler.Create)
+
 	router.GET("/wallets/:id", walletHandler.Get)
-	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
-	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
-	router.POST("/transfers", transferHandler.Create)
 
 	addr := cfg.Port
 	if !strings.HasPrefix(addr, ":") {

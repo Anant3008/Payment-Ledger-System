@@ -33,6 +33,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	transferRepo := repository.NewTransferRepository(conn)
 	ledgerRepo := repository.NewLedgerRepository(conn)
 	txRepo := repository.NewTransactionRepository(conn)
+	idempRepo := repository.NewIdempotencyRepository(conn)
 
 	walletService := services.NewWalletService(walletRepo)
 	transferService := services.NewTransferService(transferRepo)
@@ -46,13 +47,16 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	router.Use(handlers.RequestIDMiddleware())
 	router.Use(handlers.ErrorMiddleware())
 
-	router.POST("/wallets", walletHandler.Create)
+	mutating := router.Group("/")
+	mutating.Use(handlers.IdempotencyMiddleware(idempRepo))
+
+	mutating.POST("/wallets", walletHandler.Create)
 	router.GET("/wallets/:id", walletHandler.Get)
-	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
-	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	mutating.POST("/wallets/:id/deposit", walletHandler.Deposit)
+	mutating.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
-	router.POST("/transfers", transferHandler.Create)
+	mutating.POST("/transfers", transferHandler.Create)
 
 	return router
 }
@@ -64,6 +68,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	alicePayload := fmt.Sprintf(`{"owner": "Alice-%d", "initial_balance": 2000}`, time.Now().UnixNano())
 	req, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(alicePayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -80,6 +85,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	bobPayload := fmt.Sprintf(`{"owner": "Bob-%d", "initial_balance": 500}`, time.Now().UnixNano())
 	req, _ = http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(bobPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -96,6 +102,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	depositPayload := `{"amount": 500}`
 	req, _ = http.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/deposit", alice.ID), bytes.NewBufferString(depositPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -120,6 +127,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	transferPayload := fmt.Sprintf(`{"from_wallet_id": %d, "to_wallet_id": %d, "amount": 1000}`, alice.ID, bob.ID)
 	req, _ = http.NewRequest(http.MethodPost, "/transfers", bytes.NewBufferString(transferPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
@@ -166,6 +174,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	excessWithdrawPayload := `{"amount": 5000}`
 	req, _ = http.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/withdraw", alice.ID), bytes.NewBufferString(excessWithdrawPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -189,9 +198,49 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 	selfTransferPayload := fmt.Sprintf(`{"from_wallet_id": %d, "to_wallet_id": %d, "amount": 100}`, alice.ID, alice.ID)
 	req, _ = http.NewRequest(http.MethodPost, "/transfers", bytes.NewBufferString(selfTransferPayload))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", fmt.Sprintf("idk-%d", time.Now().UnixNano()))
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 Bad Request for self-transfer, got %d", w.Code)
+	}
+}
+
+func TestE2E_Idempotency(t *testing.T) {
+	router := setupTestRouter(t)
+	idempKey := fmt.Sprintf("idemp-test-%d", time.Now().UnixNano())
+
+	// 1. First Request
+	payload := fmt.Sprintf(`{"owner": "IdempUser", "initial_balance": 100}`)
+	req1, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(payload))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Idempotency-Key", idempKey)
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", w1.Code)
+	}
+
+	// 2. Second Request (Exact same key)
+	req2, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(payload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", idempKey)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+
+	// It should return the exact same body and status code (201 Created) without creating another wallet.
+	if w1.Code != w2.Code {
+		t.Fatalf("Idempotency failed: expected status %d to equal %d", w1.Code, w2.Code)
+	}
+
+	// JSON keys might be reordered when unmarshaling map[string]interface{} inside the middleware,
+	// so we compare the parsed objects instead of raw strings.
+	var b1, b2 map[string]interface{}
+	json.Unmarshal(w1.Body.Bytes(), &b1)
+	json.Unmarshal(w2.Body.Bytes(), &b2)
+
+	if b1["id"] != b2["id"] || b1["balance"] != b2["balance"] {
+		t.Fatalf("Idempotency failed: parsed bodies differ. b1=%v, b2=%v", b1, b2)
 	}
 }
