@@ -38,3 +38,31 @@ func TestTransferService_ProcessTransfer_InvalidInputs(t *testing.T) {
 		t.Fatalf("expected ErrInvalidInput for same-wallet transfer, got %v", err)
 	}
 }
+
+func TestWalletService_Deposit_InvalidAmount(t *testing.T) {
+	service := services.NewWalletService(nil)
+
+	_, err := service.Deposit(context.Background(), 1, 0)
+	if !errors.Is(err, apperrors.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for zero deposit, got %v", err)
+	}
+
+	_, err = service.Deposit(context.Background(), 1, -100)
+	if !errors.Is(err, apperrors.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for negative deposit, got %v", err)
+	}
+}
+
+func TestWalletService_Withdraw_InvalidAmount(t *testing.T) {
+	service := services.NewWalletService(nil)
+
+	_, err := service.Withdraw(context.Background(), 1, 0)
+	if !errors.Is(err, apperrors.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for zero withdrawal, got %v", err)
+	}
+
+	_, err = service.Withdraw(context.Background(), 1, -50)
+	if !errors.Is(err, apperrors.ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput for negative withdrawal, got %v", err)
+	}
+}

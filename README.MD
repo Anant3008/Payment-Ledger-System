@@ -156,6 +156,42 @@ curl -X GET http://localhost:8080/wallets/1
 }
 ```
 
+#### `POST /wallets/:id/deposit`
+Deposits funds into a wallet, updating balance and generating a transaction and ledger entry.
+
+```bash
+curl -X POST http://localhost:8080/wallets/1/deposit \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 500}'
+```
+
+#### `POST /wallets/:id/withdraw`
+Withdraws funds from a wallet, verifying balance before deducting.
+
+```bash
+curl -X POST http://localhost:8080/wallets/1/withdraw \
+  -H "Content-Type: application/json" \
+  -d '{"amount": 200}'
+```
+
+---
+
+### Ledger & Transactions
+
+#### `GET /wallets/:id/ledger`
+Retrieves paginated double-entry ledger records for a wallet.
+
+```bash
+curl -X GET "http://localhost:8080/wallets/1/ledger?limit=20&offset=0"
+```
+
+#### `GET /wallets/:id/transactions`
+Retrieves paginated transaction records for a wallet.
+
+```bash
+curl -X GET "http://localhost:8080/wallets/1/transactions?limit=20&offset=0"
+```
+
 ---
 
 ### Transfers

@@ -55,3 +55,53 @@ func (h *WalletHandler) Get(c *gin.Context) {
 
 	c.JSON(http.StatusOK, wallet)
 }
+
+type amountReq struct {
+	Amount int64 `json:"amount" binding:"required,gt=0"`
+}
+
+func (h *WalletHandler) Deposit(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	var req amountReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(fmt.Errorf("bind json: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	tx, err := h.service.Deposit(c.Request.Context(), id, req.Amount)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, tx)
+}
+
+func (h *WalletHandler) Withdraw(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	var req amountReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.Error(fmt.Errorf("bind json: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	tx, err := h.service.Withdraw(c.Request.Context(), id, req.Amount)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, tx)
+}

@@ -121,6 +121,259 @@ Errors:
 
 ---
 
+Wallet Routes
+Deposit Funds
+POST /wallets/:id/deposit
+
+URL Parameters:
+- id: integer (required, e.g. /wallets/1/deposit)
+
+Request Headers:
+- Content-Type: application/json
+- X-Request-ID: (optional) string
+
+Request Body:
+```json
+{
+  "amount": 500
+}
+```
+
+Response: 200 OK
+```json
+{
+  "id": 10,
+  "wallet_id": 1,
+  "amount": 500,
+  "type": "deposit",
+  "status": "completed",
+  "created_at": "2026-09-15T15:00:00Z"
+}
+```
+
+Errors:
+
+400 - Validation error / Invalid or non-positive amount
+```json
+{
+  "error": "invalid input provided"
+}
+```
+
+404 - Wallet not found
+```json
+{
+  "error": "resource not found"
+}
+```
+
+500 - Server error
+```json
+{
+  "error": "internal server error"
+}
+```
+
+---
+
+Wallet Routes
+Withdraw Funds
+POST /wallets/:id/withdraw
+
+URL Parameters:
+- id: integer (required, e.g. /wallets/1/withdraw)
+
+Request Headers:
+- Content-Type: application/json
+- X-Request-ID: (optional) string
+
+Request Body:
+```json
+{
+  "amount": 200
+}
+```
+
+Response: 200 OK
+```json
+{
+  "id": 11,
+  "wallet_id": 1,
+  "amount": 200,
+  "type": "withdrawal",
+  "status": "completed",
+  "created_at": "2026-09-15T15:05:00Z"
+}
+```
+
+Errors:
+
+400 - Validation error / Invalid or non-positive amount
+```json
+{
+  "error": "invalid input provided"
+}
+```
+
+400 - Insufficient funds in wallet
+```json
+{
+  "error": "insufficient funds for transfer"
+}
+```
+
+404 - Wallet not found
+```json
+{
+  "error": "resource not found"
+}
+```
+
+500 - Server error
+```json
+{
+  "error": "internal server error"
+}
+```
+
+---
+
+Ledger Routes
+Get Wallet Ledger Entries
+GET /wallets/:id/ledger
+
+URL Parameters:
+- id: integer (required, e.g. /wallets/1/ledger)
+
+Query Parameters:
+- limit: integer (optional, default 20, max 100)
+- offset: integer (optional, default 0)
+
+Request Headers:
+- X-Request-ID: (optional) string
+
+Request Body:
+None
+
+Response: 200 OK
+```json
+{
+  "wallet_id": 1,
+  "limit": 20,
+  "offset": 0,
+  "entries": [
+    {
+      "id": 15,
+      "transaction_id": 10,
+      "wallet_id": 1,
+      "amount": 500,
+      "created_at": "2026-09-15T15:00:00Z"
+    },
+    {
+      "id": 16,
+      "transaction_id": 11,
+      "wallet_id": 1,
+      "amount": -200,
+      "created_at": "2026-09-15T15:05:00Z"
+    }
+  ]
+}
+```
+
+Errors:
+
+400 - Invalid ID format
+```json
+{
+  "error": "invalid input provided"
+}
+```
+
+404 - Wallet not found
+```json
+{
+  "error": "resource not found"
+}
+```
+
+500 - Server error
+```json
+{
+  "error": "internal server error"
+}
+```
+
+---
+
+Ledger Routes
+Get Wallet Transactions
+GET /wallets/:id/transactions
+
+URL Parameters:
+- id: integer (required, e.g. /wallets/1/transactions)
+
+Query Parameters:
+- limit: integer (optional, default 20, max 100)
+- offset: integer (optional, default 0)
+
+Request Headers:
+- X-Request-ID: (optional) string
+
+Request Body:
+None
+
+Response: 200 OK
+```json
+{
+  "wallet_id": 1,
+  "limit": 20,
+  "offset": 0,
+  "transactions": [
+    {
+      "id": 11,
+      "wallet_id": 1,
+      "amount": 200,
+      "type": "withdrawal",
+      "status": "completed",
+      "created_at": "2026-09-15T15:05:00Z"
+    },
+    {
+      "id": 10,
+      "wallet_id": 1,
+      "amount": 500,
+      "type": "deposit",
+      "status": "completed",
+      "created_at": "2026-09-15T15:00:00Z"
+    }
+  ]
+}
+```
+
+Errors:
+
+400 - Invalid ID format
+```json
+{
+  "error": "invalid input provided"
+}
+```
+
+404 - Wallet not found
+```json
+{
+  "error": "resource not found"
+}
+```
+
+500 - Server error
+```json
+{
+  "error": "internal server error"
+}
+```
+
+---
+
 Transfer Routes
 Process Transfer
 POST /transfers

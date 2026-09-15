@@ -24,14 +24,18 @@ func main() {
 	// 1. Repositories
 	walletRepo := repository.NewWalletRepository(conn)
 	transferRepo := repository.NewTransferRepository(conn)
+	ledgerRepo := repository.NewLedgerRepository(conn)
+	txRepo := repository.NewTransactionRepository(conn)
 
 	// 2. Services
 	walletService := services.NewWalletService(walletRepo)
 	transferService := services.NewTransferService(transferRepo)
+	ledgerService := services.NewLedgerService(ledgerRepo, txRepo, walletRepo)
 
 	// 3. Handlers
 	walletHandler := handlers.NewWalletHandler(walletService)
 	transferHandler := handlers.NewTransferHandler(transferService)
+	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
 
 	router := gin.Default()
 	router.Use(handlers.RequestIDMiddleware())
@@ -49,6 +53,10 @@ func main() {
 	// Routes
 	router.POST("/wallets", walletHandler.Create)
 	router.GET("/wallets/:id", walletHandler.Get)
+	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
+	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
+	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
 	router.POST("/transfers", transferHandler.Create)
 
 	addr := cfg.Port

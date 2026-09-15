@@ -36,3 +36,19 @@ func (s *WalletService) CreateWallet(ctx context.Context, owner string, initialB
 func (s *WalletService) GetWallet(ctx context.Context, id int) (*models.Wallet, error) {
 	return s.repo.GetByID(ctx, id)
 }
+
+// Deposit validates input and deposits funds into a wallet.
+func (s *WalletService) Deposit(ctx context.Context, walletID int, amount int64) (*models.Transaction, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("deposit amount must be greater than zero: %w", apperrors.ErrInvalidInput)
+	}
+	return s.repo.Deposit(ctx, walletID, amount)
+}
+
+// Withdraw validates input and withdraws funds from a wallet.
+func (s *WalletService) Withdraw(ctx context.Context, walletID int, amount int64) (*models.Transaction, error) {
+	if amount <= 0 {
+		return nil, fmt.Errorf("withdrawal amount must be greater than zero: %w", apperrors.ErrInvalidInput)
+	}
+	return s.repo.Withdraw(ctx, walletID, amount)
+}

@@ -42,3 +42,81 @@ func (r *WalletRepository) List(ctx context.Context) ([]models.Wallet, error) {
     err := r.db.SelectContext(ctx, &out, "SELECT id, owner, balance, created_at FROM wallets ORDER BY id")
     return out, err
 }
+
+// Deposit adds funds to a wallet, recording a transaction and ledger entry atomically.
+func (r *WalletRepository) Deposit(ctx context.Context, walletID int, amount int64) (*models.Transaction, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var dummy int
+	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", walletID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("wallet %d: %w", walletID, errors.ErrNotFound)
+		}
+		return nil, fmt.Errorf("lock wallet: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance + $1 WHERE id = $2", amount, walletID); err != nil {
+		return nil, fmt.Errorf("update balance: %w", err)
+	}
+
+	var transaction models.Transaction
+	queryTx := `INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, $2, 'deposit', 'completed') RETURNING id, wallet_id, amount, type, status, created_at`
+	if err := tx.QueryRowxContext(ctx, queryTx, walletID, amount).StructScan(&transaction); err != nil {
+		return nil, fmt.Errorf("insert transaction: %w", err)
+	}
+
+	queryLedger := `INSERT INTO ledger_entries (transaction_id, wallet_id, amount) VALUES ($1, $2, $3)`
+	if _, err := tx.ExecContext(ctx, queryLedger, transaction.ID, walletID, amount); err != nil {
+		return nil, fmt.Errorf("insert ledger entry: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return &transaction, nil
+}
+
+// Withdraw deducts funds from a wallet, recording a transaction and ledger entry atomically.
+func (r *WalletRepository) Withdraw(ctx context.Context, walletID int, amount int64) (*models.Transaction, error) {
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	var currentBalance int64
+	if err := tx.GetContext(ctx, &currentBalance, "SELECT balance FROM wallets WHERE id=$1 FOR UPDATE", walletID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("wallet %d: %w", walletID, errors.ErrNotFound)
+		}
+		return nil, fmt.Errorf("lock wallet: %w", err)
+	}
+
+	if currentBalance < amount {
+		return nil, fmt.Errorf("balance %d < amount %d: %w", currentBalance, amount, errors.ErrInsufficientFunds)
+	}
+
+	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance - $1 WHERE id = $2", amount, walletID); err != nil {
+		return nil, fmt.Errorf("update balance: %w", err)
+	}
+
+	var transaction models.Transaction
+	queryTx := `INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, $2, 'withdrawal', 'completed') RETURNING id, wallet_id, amount, type, status, created_at`
+	if err := tx.QueryRowxContext(ctx, queryTx, walletID, amount).StructScan(&transaction); err != nil {
+		return nil, fmt.Errorf("insert transaction: %w", err)
+	}
+
+	queryLedger := `INSERT INTO ledger_entries (transaction_id, wallet_id, amount) VALUES ($1, $2, $3)`
+	if _, err := tx.ExecContext(ctx, queryLedger, transaction.ID, walletID, -amount); err != nil {
+		return nil, fmt.Errorf("insert ledger entry: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit tx: %w", err)
+	}
+	return &transaction, nil
+}

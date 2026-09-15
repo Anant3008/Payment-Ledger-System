@@ -65,3 +65,59 @@ func TestWalletHandler_Get_InvalidIDFormat(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, w.Code)
 	}
 }
+
+func TestWalletHandler_Deposit_InvalidInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.Use(handlers.ErrorMiddleware())
+
+	walletHandler := handlers.NewWalletHandler(nil)
+	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
+
+	// Invalid ID format
+	req, _ := http.NewRequest(http.MethodPost, "/wallets/abc/deposit", bytes.NewBuffer([]byte(`{"amount": 100}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d for invalid id, got %d", http.StatusBadRequest, w.Code)
+	}
+
+	// Zero or negative amount
+	req, _ = http.NewRequest(http.MethodPost, "/wallets/1/deposit", bytes.NewBuffer([]byte(`{"amount": 0}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d for non-positive amount, got %d", http.StatusBadRequest, w.Code)
+	}
+}
+
+func TestWalletHandler_Withdraw_InvalidInput(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.Use(handlers.ErrorMiddleware())
+
+	walletHandler := handlers.NewWalletHandler(nil)
+	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+
+	// Invalid ID format
+	req, _ := http.NewRequest(http.MethodPost, "/wallets/xyz/withdraw", bytes.NewBuffer([]byte(`{"amount": 50}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d for invalid id, got %d", http.StatusBadRequest, w.Code)
+	}
+
+	// Missing amount
+	req, _ = http.NewRequest(http.MethodPost, "/wallets/1/withdraw", bytes.NewBuffer([]byte(`{}`)))
+	req.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status %d for missing amount, got %d", http.StatusBadRequest, w.Code)
+	}
+}

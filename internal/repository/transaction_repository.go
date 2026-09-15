@@ -24,9 +24,15 @@ func (r *TransactionRepository) GetByID(ctx context.Context, id int) (*models.Tr
     return &t, nil
 }
 
-func (r *TransactionRepository) ListByWallet(ctx context.Context, walletID int) ([]models.Transaction, error) {
-    var out []models.Transaction
-    err := r.db.SelectContext(ctx, &out, "SELECT id, wallet_id, amount, type, status, created_at FROM transactions WHERE wallet_id=$1 ORDER BY id", walletID)
+func (r *TransactionRepository) ListByWallet(ctx context.Context, walletID int, limit, offset int) ([]models.Transaction, error) {
+    if limit <= 0 {
+        limit = 20
+    }
+    if offset < 0 {
+        offset = 0
+    }
+    out := []models.Transaction{}
+    err := r.db.SelectContext(ctx, &out, "SELECT id, wallet_id, amount, type, status, created_at FROM transactions WHERE wallet_id=$1 ORDER BY id DESC LIMIT $2 OFFSET $3", walletID, limit, offset)
     return out, err
 }
 
