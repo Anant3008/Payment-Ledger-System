@@ -23,5 +23,15 @@ services:
     ports:
       - "8080:8080"
 
+  audit-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["/audit-worker"]
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@db:5432/payment_ledger?sslmode=disable
+
 volumes:
   pgdata:
