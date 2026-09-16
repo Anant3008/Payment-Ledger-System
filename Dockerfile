@@ -1,4 +1,4 @@
-FROM golang:1.26.3-alpine AS builder
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /src
 
@@ -14,13 +14,15 @@ COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux \
-    go build -o server ./cmd/server
+    go build -o server ./cmd/server && \
+    go build -o audit-worker ./cmd/audit-worker
 
 FROM alpine:3.18
 
 RUN apk add --no-cache ca-certificates
 
 COPY --from=builder /src/server /server
+COPY --from=builder /src/audit-worker /audit-worker
 
 EXPOSE 8080
 

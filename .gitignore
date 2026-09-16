@@ -28,3 +28,8 @@ docker-compose.override.yml
 # OS
 .DS_Store
 .gitnexus
+
+# Claude Code configuration
+.claude/
+AGENTS.md
+CLAUDE.md
