@@ -14,7 +14,7 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 
 export const options = {
   vus: __ENV.VUS ? parseInt(__ENV.VUS, 10) : 10,
-  duration: __ENV.DURATION || '10s',
+  duration: __ENV.DURATION || '25s',
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
   thresholds: {
     'http_req_failed': ['rate<0.05'],

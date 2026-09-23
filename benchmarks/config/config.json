@@ -22,6 +22,6 @@
     }
   ],
   "concurrency_levels": [10, 50, 100, 250, 500],
-  "default_duration": "10s",
+  "default_duration": "25s",
   "base_url": "http://localhost:8080"
 }
