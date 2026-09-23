@@ -1,6 +1,8 @@
 # Binaries
 /bin/
 /app/
+/server
+/audit-worker
 
 # Build outputs
 *.exe

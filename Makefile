@@ -11,3 +11,6 @@ migrate-down:
 
 migrate-version:
 	migrate -path migrations -database "$(DB_URL)" version
+
+test:
+	go test -v -count=1 ./...
