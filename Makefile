@@ -14,3 +14,20 @@ migrate-version:
 
 test:
 	go test -v -count=1 ./...
+
+NAME ?= baseline
+RUNS ?= 3
+
+benchmark:
+	python3 benchmarks/run_benchmarks.py --name $(NAME) --runs $(RUNS)
+
+benchmark-list:
+	python3 benchmarks/run_benchmarks.py --list
+
+benchmark-compare:
+	python3 benchmarks/run_benchmarks.py --compare $(A) $(B)
+
+benchmark-clean:
+	python3 benchmarks/run_benchmarks.py --clean
+
+
