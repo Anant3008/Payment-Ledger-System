@@ -1,104 +1,37 @@
-# Baseline Benchmark Report: Payment Ledger System
+# Benchmark Report: baseline
 
-**Date:** 2026-09-23 16:19:59
+**Date:** 2026-09-23 23:36:26
 **Target Host:** `http://localhost:8080`
-**Test Duration:** `10s` per concurrency level
+**Step Duration:** `25s` per test
+**Trials per Level:** `3` (results show calculated averages)
 **Tooling:** Grafana k6 + PostgreSQL `pg_stat` runtime instrumentation
 
 ## 1. Executive Summary
 
-- **Deadlock Immunity:** **0 deadlocks** occurred across all runs (up to 500 concurrent requests). The deterministic row-ordering algorithm (`MIN(id) FOR UPDATE` then `MAX(id) FOR UPDATE`) definitively prevented circular wait hazards.
-- **Hot-Wallet Contention Bottleneck:** As concurrency increases against a single wallet, transactions serialize sequentially on PostgreSQL row locks, increasing p99 latency.
-- **Balance Invariants:** Global ledger balance parity was preserved with exact zero drift.
+- **Deadlock Immunity:** **0 deadlocks** detected across all runs (up to 500 VUs). Deterministic lock ordering (`firstID < secondID`) prevented circular waits.
+- **Statistical Stability:** Every data point represents the average of 3 repeated trials to eliminate outlier jitter.
 
-## 2. Consolidated Performance Profile
+## 2. Consolidated Benchmark Results (Averaged)
 
-| Scenario | VUs | Throughput | Avg | p50 | p90 | p95 | p99 | Max | Error Rate |
+| Scenario | VUs | Throughput (RPS) | p50 | p90 | p95 | p99 | Errors | Peak Locks | Deadlocks |
 |:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| `normal_transfers` | 10 | 728.28 r/s | 13.31ms | 11.74ms | 18.35ms | 26.09ms | 36.89ms | 53.42ms | 0.00% |
-| `normal_transfers` | 50 | 1051.19 r/s | 47.12ms | 42.79ms | 76.54ms | 89.10ms | 119.16ms | 172.73ms | 0.00% |
-| `normal_transfers` | 100 | 680.46 r/s | 145.81ms | 127.21ms | 256.59ms | 307.95ms | 427.08ms | 662.81ms | 0.00% |
-| `normal_transfers` | 250 | 1099.55 r/s | 225.02ms | 199.84ms | 395.40ms | 464.26ms | 649.73ms | 1.06s | 0.00% |
-| `normal_transfers` | 500 | 1037.36 r/s | 470.11ms | 413.11ms | 829.67ms | 987.03ms | 1.33s | 2.78s | 0.00% |
-| `hot_wallet` | 10 | 366.01 r/s | 26.96ms | 11.16ms | 39.53ms | 125.03ms | 328.02ms | 746.01ms | 0.00% |
-| `hot_wallet` | 50 | 257.69 r/s | 192.22ms | 174.96ms | 322.81ms | 380.13ms | 485.89ms | 815.12ms | 0.00% |
-| `hot_wallet` | 100 | 226.70 r/s | 434.99ms | 396.29ms | 734.55ms | 860.14ms | 1.13s | 1.59s | 0.00% |
-| `hot_wallet` | 250 | 186.90 r/s | 1.28s | 1.12s | 2.29s | 2.78s | 3.54s | 5.13s | 0.00% |
-| `hot_wallet` | 500 | 221.12 r/s | 2.13s | 1.90s | 3.61s | 4.35s | 5.92s | 8.88s | 0.00% |
-| `cross_wallet` | 10 | 513.51 r/s | 19.08ms | 17.26ms | 26.69ms | 31.47ms | 40.18ms | 72.97ms | 0.00% |
-| `cross_wallet` | 50 | 622.22 r/s | 79.78ms | 72.77ms | 127.61ms | 147.97ms | 194.10ms | 335.20ms | 0.00% |
-| `cross_wallet` | 100 | 567.83 r/s | 174.90ms | 157.12ms | 297.84ms | 347.58ms | 463.55ms | 682.64ms | 0.00% |
-| `cross_wallet` | 250 | 595.59 r/s | 413.79ms | 367.90ms | 723.99ms | 857.27ms | 1.17s | 2.01s | 0.00% |
-| `cross_wallet` | 500 | 589.04 r/s | 823.15ms | 733.88ms | 1.45s | 1.69s | 2.25s | 3.56s | 0.00% |
-| `opposing_transfers` | 10 | 210.58 r/s | 47.11ms | 35.30ms | 83.78ms | 91.09ms | 107.01ms | 210.58ms | 0.00% |
-| `opposing_transfers` | 50 | 191.66 r/s | 258.27ms | 234.71ms | 427.56ms | 498.00ms | 661.45ms | 1.13s | 0.00% |
-| `opposing_transfers` | 100 | 226.33 r/s | 435.05ms | 391.71ms | 745.81ms | 862.21ms | 1.15s | 2.08s | 0.00% |
-| `opposing_transfers` | 250 | 227.42 r/s | 1.06s | 957.03ms | 1.84s | 2.17s | 3.04s | 4.33s | 0.00% |
-| `opposing_transfers` | 500 | 225.04 r/s | 2.09s | 1.89s | 3.62s | 4.18s | 5.46s | 8.68s | 0.00% |
-
-## 3. Database Lock Contention & Integrity
-
-| Scenario | VUs | Peak Lock Waits | Avg Lock Waits | Peak Active Conns | DB Commits | Deadlocks |
-|:---|---:|---:|---:|---:|---:|---:|
-| `normal_transfers` | 10 | 2 | 0.07 | 11 | 23573 | 0 |
-| `normal_transfers` | 50 | 0 | 0.00 | 11 | 30721 | 0 |
-| `normal_transfers` | 100 | 0 | 0.00 | 11 | 21896 | 0 |
-| `normal_transfers` | 250 | 0 | 0.00 | 12 | 33771 | 0 |
-| `normal_transfers` | 500 | 0 | 0.00 | 12 | 32081 | 0 |
-| `hot_wallet` | 10 | 8 | 7.31 | 11 | 11112 | 0 |
-| `hot_wallet` | 50 | 9 | 6.91 | 12 | 8082 | 0 |
-| `hot_wallet` | 100 | 9 | 6.55 | 12 | 7378 | 0 |
-| `hot_wallet` | 250 | 9 | 6.41 | 12 | 6323 | 0 |
-| `hot_wallet` | 500 | 9 | 6.67 | 12 | 7945 | 0 |
-| `cross_wallet` | 10 | 2 | 0.30 | 11 | 16865 | 0 |
-| `cross_wallet` | 50 | 3 | 0.39 | 12 | 19168 | 0 |
-| `cross_wallet` | 100 | 3 | 0.51 | 12 | 17345 | 0 |
-| `cross_wallet` | 250 | 2 | 0.43 | 12 | 18417 | 0 |
-| `cross_wallet` | 500 | 2 | 0.41 | 11 | 18683 | 0 |
-| `opposing_transfers` | 10 | 8 | 6.86 | 12 | 6764 | 0 |
-| `opposing_transfers` | 50 | 9 | 6.76 | 12 | 5974 | 0 |
-| `opposing_transfers` | 100 | 9 | 6.72 | 11 | 7482 | 0 |
-| `opposing_transfers` | 250 | 9 | 6.67 | 12 | 7448 | 0 |
-| `opposing_transfers` | 500 | 9 | 6.52 | 12 | 8112 | 0 |
-
-## 4. Scenario Breakdown
-
-### `normal_transfers`
-
-| VUs | Throughput | p50 | p95 | p99 | Errors | Peak Locks | Deadlocks |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 728.28 r/s | 11.74ms | 26.09ms | 36.89ms | 0.00% | 2 | 0 |
-| 50 | 1051.19 r/s | 42.79ms | 89.10ms | 119.16ms | 0.00% | 0 | 0 |
-| 100 | 680.46 r/s | 127.21ms | 307.95ms | 427.08ms | 0.00% | 0 | 0 |
-| 250 | 1099.55 r/s | 199.84ms | 464.26ms | 649.73ms | 0.00% | 0 | 0 |
-| 500 | 1037.36 r/s | 413.11ms | 987.03ms | 1.33s | 0.00% | 0 | 0 |
-
-### `hot_wallet`
-
-| VUs | Throughput | p50 | p95 | p99 | Errors | Peak Locks | Deadlocks |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 366.01 r/s | 11.16ms | 125.03ms | 328.02ms | 0.00% | 8 | 0 |
-| 50 | 257.69 r/s | 174.96ms | 380.13ms | 485.89ms | 0.00% | 9 | 0 |
-| 100 | 226.70 r/s | 396.29ms | 860.14ms | 1.13s | 0.00% | 9 | 0 |
-| 250 | 186.90 r/s | 1.12s | 2.78s | 3.54s | 0.00% | 9 | 0 |
-| 500 | 221.12 r/s | 1.90s | 4.35s | 5.92s | 0.00% | 9 | 0 |
-
-### `cross_wallet`
-
-| VUs | Throughput | p50 | p95 | p99 | Errors | Peak Locks | Deadlocks |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 513.51 r/s | 17.26ms | 31.47ms | 40.18ms | 0.00% | 2 | 0 |
-| 50 | 622.22 r/s | 72.77ms | 147.97ms | 194.10ms | 0.00% | 3 | 0 |
-| 100 | 567.83 r/s | 157.12ms | 347.58ms | 463.55ms | 0.00% | 3 | 0 |
-| 250 | 595.59 r/s | 367.90ms | 857.27ms | 1.17s | 0.00% | 2 | 0 |
-| 500 | 589.04 r/s | 733.88ms | 1.69s | 2.25s | 0.00% | 2 | 0 |
-
-### `opposing_transfers`
-
-| VUs | Throughput | p50 | p95 | p99 | Errors | Peak Locks | Deadlocks |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 210.58 r/s | 35.30ms | 91.09ms | 107.01ms | 0.00% | 8 | 0 |
-| 50 | 191.66 r/s | 234.71ms | 498.00ms | 661.45ms | 0.00% | 9 | 0 |
-| 100 | 226.33 r/s | 391.71ms | 862.21ms | 1.15s | 0.00% | 9 | 0 |
-| 250 | 227.42 r/s | 957.03ms | 2.17s | 3.04s | 0.00% | 9 | 0 |
-| 500 | 225.04 r/s | 1.89s | 4.18s | 5.46s | 0.00% | 9 | 0 |
+| `normal_transfers` | 10 | 727.26 r/s | 12.24ms | 19.12ms | 25.92ms | 35.06ms | 0.00% | 0 | 0 |
+| `normal_transfers` | 50 | 583.38 r/s | 76.58ms | 140.57ms | 166.75ms | 230.68ms | 0.00% | 0 | 0 |
+| `normal_transfers` | 100 | 577.90 r/s | 153.43ms | 298.22ms | 356.51ms | 492.79ms | 0.00% | 0 | 0 |
+| `normal_transfers` | 250 | 459.84 r/s | 467.13ms | 987.68ms | 1.19s | 1.59s | 0.00% | 0 | 0 |
+| `normal_transfers` | 500 | 514.17 r/s | 839.69ms | 1.74s | 2.08s | 2.87s | 0.00% | 0 | 0 |
+| `hot_wallet` | 10 | 205.24 r/s | 33.94ms | 83.65ms | 93.42ms | 150.82ms | 0.00% | 8 | 0 |
+| `hot_wallet` | 50 | 218.20 r/s | 209.46ms | 374.30ms | 431.62ms | 566.60ms | 0.00% | 9 | 0 |
+| `hot_wallet` | 100 | 230.90 r/s | 390.16ms | 725.01ms | 847.77ms | 1.14s | 0.00% | 9 | 0 |
+| `hot_wallet` | 250 | 232.05 r/s | 954.82ms | 1.85s | 2.17s | 2.88s | 0.00% | 9 | 0 |
+| `hot_wallet` | 500 | 232.45 r/s | 1.88s | 3.68s | 4.36s | 5.67s | 0.00% | 9 | 0 |
+| `cross_wallet` | 10 | 542.31 r/s | 16.63ms | 24.66ms | 28.82ms | 35.84ms | 0.00% | 3 | 0 |
+| `cross_wallet` | 50 | 655.03 r/s | 69.38ms | 121.20ms | 140.45ms | 186.42ms | 0.00% | 3 | 0 |
+| `cross_wallet` | 100 | 612.39 r/s | 145.78ms | 275.93ms | 326.08ms | 438.23ms | 0.00% | 4 | 0 |
+| `cross_wallet` | 250 | 636.81 r/s | 350.02ms | 676.46ms | 801.63ms | 1.05s | 0.00% | 3 | 0 |
+| `cross_wallet` | 500 | 616.98 r/s | 709.48ms | 1.41s | 1.67s | 2.25s | 0.00% | 4 | 0 |
+| `opposing_transfers` | 10 | 224.08 r/s | 31.99ms | 75.15ms | 84.31ms | 115.40ms | 0.00% | 8 | 0 |
+| `opposing_transfers` | 50 | 225.74 r/s | 202.01ms | 359.70ms | 417.35ms | 554.42ms | 0.00% | 9 | 0 |
+| `opposing_transfers` | 100 | 228.51 r/s | 391.01ms | 738.73ms | 865.33ms | 1.14s | 0.00% | 9 | 0 |
+| `opposing_transfers` | 250 | 222.55 r/s | 986.50ms | 1.94s | 2.30s | 3.07s | 0.00% | 9 | 0 |
+| `opposing_transfers` | 500 | 222.42 r/s | 1.95s | 3.84s | 4.54s | 6.03s | 0.00% | 9 | 0 |
