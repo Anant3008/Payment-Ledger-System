@@ -1,0 +1,27 @@
+{
+  "scenarios": [
+    {
+      "name": "normal_transfers",
+      "description": "Normal transfers across disjoint sender-receiver wallet pairs (minimal row-lock contention)",
+      "script": "benchmarks/scripts/normal_transfers.js"
+    },
+    {
+      "name": "hot_wallet",
+      "description": "Hot-wallet contention: multiple concurrent transfers originating from the exact same sender wallet",
+      "script": "benchmarks/scripts/hot_wallet.js"
+    },
+    {
+      "name": "cross_wallet",
+      "description": "Cross-wallet transfers across a shared pool of 50 wallets with random peer-to-peer collisions",
+      "script": "benchmarks/scripts/cross_wallet.js"
+    },
+    {
+      "name": "opposing_transfers",
+      "description": "Concurrent opposing transfers (A->B and B->A) stressing row lock ordering and deadlock avoidance",
+      "script": "benchmarks/scripts/opposing_transfers.js"
+    }
+  ],
+  "concurrency_levels": [10, 50, 100, 250, 500],
+  "default_duration": "10s",
+  "base_url": "http://localhost:8080"
+}

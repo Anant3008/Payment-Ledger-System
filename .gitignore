@@ -35,3 +35,11 @@ docker-compose.override.yml
 .claude/
 AGENTS.md
 CLAUDE.md
+
+# Repomix & Tools
+repomix-output.xml
+
+# Benchmark generated data
+benchmarks/data/wallets.json
+benchmarks/results/raw/
+
