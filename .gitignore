@@ -19,6 +19,10 @@ coverage.out
 # Environment
 .env
 
+# Python
+__pycache__/
+*.pyc
+
 # Docker/Postgres data
 /pgdata/
 docker-compose.override.yml
@@ -42,4 +46,5 @@ repomix-output.xml
 # Benchmark generated data
 benchmarks/data/wallets.json
 benchmarks/results/raw/
+benchmarks/diagnostics/stage_profiler_runner.go
 

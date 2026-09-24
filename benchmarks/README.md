@@ -72,7 +72,23 @@ python3 benchmarks/run_benchmarks.py --scenarios hot_wallet,opposing_transfers
 python3 benchmarks/run_benchmarks.py --vus 10,50,100
 ```
 
-### 6. Clean Up Benchmark Data & State
+### 6. Transfer Lifecycle & Contention Diagnostics
+Investigate latency bottlenecks (connection pool wait vs row-lock wait vs DB work vs commit/WAL):
+```bash
+python3 benchmarks/diagnostics/contention_diagnostic.py
+```
+
+### 7. Centralized Experiment Tracking
+Every benchmark or diagnostic run is automatically logged with numbered sequencing:
+* **Log:** `benchmarks/experiments/experiment_log.md` (records hypothesis, config, RPS, p50/p95/p99, errors, diagnostic metrics, observation, next step).
+* **Raw Artifacts:** Saved in `benchmarks/experiments/results/{001_name}/`.
+
+```bash
+# Optional custom purpose / notes:
+python3 benchmarks/run_benchmarks.py --name pool_20 --purpose "Evaluate throughput with maxOpenConns=20"
+```
+
+### 8. Clean Up Benchmark Data & State
 Resets benchmark database rows and removes temporary test artifacts:
 ```bash
 make benchmark-clean
@@ -93,6 +109,13 @@ benchmarks/
 ├── config/
 │   ├── config.json         # Scenario descriptions and default VU levels
 │   └── seed_wallets.sql    # Clean provisioning SQL with FK indexes & safe timeouts
+├── diagnostics/
+│   ├── contention_diagnostic.py # Lifecycle profiler for hot-wallet & opposing contention
+│   └── contention_test.js       # Diagnostic k6 test reproducing 500 VU contention
+├── experiments/
+│   ├── experiment_log.md   # Chronological ledger of all benchmark & diagnostic runs
+│   ├── tracker.py          # Centralized tracker module
+│   └── results/            # Numbered experiment directories (e.g. 001_baseline/)
 ├── scripts/
 │   ├── setup_data.sh       # Provisions benchmark wallets & exports data/wallets.json
 │   ├── normal_transfers.js # Scenario 1: Disjoint wallet pairs

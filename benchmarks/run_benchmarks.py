@@ -10,6 +10,7 @@ import subprocess
 from datetime import datetime
 
 BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, BENCH_DIR)
 SCRIPTS_DIR = os.path.join(BENCH_DIR, "scripts")
 RESULTS_DIR = os.path.join(BENCH_DIR, "results")
 DATA_DIR = os.path.join(BENCH_DIR, "data")
@@ -455,6 +456,10 @@ def main():
     parser.add_argument("--vus", default="10,50,100,250,500", help="Comma-separated VU counts")
     parser.add_argument("--scenarios", default="all", help="Comma-separated scenarios or 'all'")
     parser.add_argument("--save-raw", default="", help="Optional directory to save raw per-run k6 JSON files")
+    parser.add_argument("--purpose", default=None, help="Hypothesis / purpose description for experiment log")
+    parser.add_argument("--observation", default=None, help="Observation notes for experiment log")
+    parser.add_argument("--next-step", default=None, help="Next steps for experiment log")
+    parser.add_argument("--no-track", action="store_true", help="Disable automatic recording in experiment tracker")
     parser.add_argument("--clean", action="store_true", help="Clean benchmark data, results, and reset DB records")
     parser.add_argument("--list", action="store_true", help="List all saved benchmark runs")
     parser.add_argument("--compare", nargs=2, metavar=("RUN_A", "RUN_B"), help="Compare two benchmark runs")
@@ -571,6 +576,25 @@ def main():
     print(f"{c('│', GREEN)}  Saved JSON Result:         {c(run_file, DIM):<82} {c('│', GREEN)}")
     print(f"{c('│', GREEN)}  Human-Readable Report:     {c(report_file, DIM):<82} {c('│', GREEN)}")
     print(c("└" + "─" * (w - 2) + "┘\n", GREEN))
+
+    if not args.no_track:
+        try:
+            from experiments.tracker import record_benchmark_experiment
+            record_benchmark_experiment(
+                name=args.name,
+                config={
+                    "host": args.base_url,
+                    "duration": args.duration,
+                    "trials": args.runs,
+                    "vus": vus_list,
+                },
+                results=all_results,
+                purpose=args.purpose,
+                observation=args.observation,
+                next_step=args.next_step,
+            )
+        except Exception as e:
+            print(f"  {c('⚠ Note:', YELLOW)} Experiment tracking notice: {e}")
 
 if __name__ == "__main__":
     main()
