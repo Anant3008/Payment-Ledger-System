@@ -1,0 +1,138 @@
+{
+  "name": "single_roundtrip",
+  "timestamp": "2026-09-24T16:14:15.457505",
+  "config": {
+    "host": "http://localhost:8080",
+    "duration": "10s",
+    "trials": 1,
+    "vus": [
+      10,
+      50,
+      100,
+      250,
+      500
+    ]
+  },
+  "results": [
+    {
+      "scenario": "hot_wallet",
+      "vus": 10,
+      "rps": 242.8,
+      "p50_ms": 31.43,
+      "p90_ms": 77.08,
+      "p95_ms": 95.21,
+      "p99_ms": 136.67,
+      "errors_pct": 0.0,
+      "peak_locks": 8,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "hot_wallet",
+      "vus": 50,
+      "rps": 239.53,
+      "p50_ms": 189.22,
+      "p90_ms": 342.24,
+      "p95_ms": 395.35,
+      "p99_ms": 517.2,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "hot_wallet",
+      "vus": 100,
+      "rps": 251.2,
+      "p50_ms": 351.03,
+      "p90_ms": 672.47,
+      "p95_ms": 786.8,
+      "p99_ms": 1009.62,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "hot_wallet",
+      "vus": 250,
+      "rps": 241.28,
+      "p50_ms": 884.72,
+      "p90_ms": 1784.53,
+      "p95_ms": 2119.77,
+      "p99_ms": 2738.74,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "hot_wallet",
+      "vus": 500,
+      "rps": 237.75,
+      "p50_ms": 1804.02,
+      "p90_ms": 3454.3,
+      "p95_ms": 4160.87,
+      "p99_ms": 5475.55,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "opposing_transfers",
+      "vus": 10,
+      "rps": 242.18,
+      "p50_ms": 29.23,
+      "p90_ms": 79.42,
+      "p95_ms": 99.56,
+      "p99_ms": 155.38,
+      "errors_pct": 0.0,
+      "peak_locks": 8,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "opposing_transfers",
+      "vus": 50,
+      "rps": 242.63,
+      "p50_ms": 186.41,
+      "p90_ms": 336.86,
+      "p95_ms": 393.55,
+      "p99_ms": 494.85,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "opposing_transfers",
+      "vus": 100,
+      "rps": 241.76,
+      "p50_ms": 366.45,
+      "p90_ms": 700.4,
+      "p95_ms": 822.94,
+      "p99_ms": 1059.68,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "opposing_transfers",
+      "vus": 250,
+      "rps": 238.14,
+      "p50_ms": 906.4,
+      "p90_ms": 1765.37,
+      "p95_ms": 2079.71,
+      "p99_ms": 2745.73,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    },
+    {
+      "scenario": "opposing_transfers",
+      "vus": 500,
+      "rps": 239.65,
+      "p50_ms": 1812.03,
+      "p90_ms": 3350.24,
+      "p95_ms": 3965.75,
+      "p99_ms": 5164.34,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    }
+  ]
+}
