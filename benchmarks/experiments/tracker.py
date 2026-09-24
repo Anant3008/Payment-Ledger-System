@@ -111,23 +111,18 @@ def record_benchmark_experiment(name, config, results, purpose=None, observation
             obs_parts.append(f"Normal transfers achieved {norm_peak['rps']:.2f} r/s with zero lock contention.")
         observation = " ".join(obs_parts) if obs_parts else "Benchmark completed within expected performance parameters."
 
-    # Derive next step if not provided
-    if not next_step:
-        if "hot_wallet" in scenarios and peak_locks > 5:
-            next_step = "Run transfer lifecycle contention diagnostics (`make benchmark-diag`) to pinpoint connection pool vs row-lock wait time."
-        else:
-            next_step = "Analyze comparative metrics against optimization branches using `--compare`."
-
+    pool_part = f" | DB Pool: {config.get('pool')} conns" if "pool" in config else ""
     config_str = (
         f"{', '.join(str(v) for v in config.get('vus', []))} VUs | "
         f"Duration: {config.get('duration', '25s')} | "
         f"Trials: {config.get('trials', 3)}x avg | "
-        f"Host: {config.get('host', 'http://localhost:8080')}"
+        f"Host: {config.get('host', 'http://localhost:8080')}{pool_part}"
     )
 
     # Format markdown entry
     rps_str = "\n  - ".join(rps_lines) if len(rps_lines) > 1 else (rps_lines[0] if rps_lines else "N/A")
     lat_str = "\n  - ".join(latency_lines) if len(latency_lines) > 1 else (latency_lines[0] if latency_lines else "N/A")
+    next_step_entry = f"- **Next Step:** {next_step}\n" if next_step else ""
 
     entry = (
         f"\n## Experiment {exp_num}: {name}\n"
@@ -139,7 +134,7 @@ def record_benchmark_experiment(name, config, results, purpose=None, observation
         f"- **Errors:** {errors_str}\n"
         f"- **Relevant Diagnostic Metrics:** {diagnostic_metrics}\n"
         f"- **Observation:** {observation}\n"
-        f"- **Next Step:** {next_step}\n\n"
+        f"{next_step_entry}\n"
         f"---\n"
     )
 
@@ -209,11 +204,12 @@ def record_diagnostic_experiment(name, config, diagnostic_results, purpose=None,
             f"DB work: {work_pct:.1f}% | Commit/WAL: {commit_pct:.1f}%"
         )
 
+        pool_size = config.get("pool", 10)
         if pool_pct > 50 and lock_pct > 15:
             obs_lines.append(
                 f"`{sc}` suffers from a dual bottleneck: row locks serialize requests on PostgreSQL, "
                 f"causing active connections to block for {_format_ms(db.get('lock_wait', {}).get('avg', 0.0))} "
-                f"and starving Go's 10-connection pool ({pool_pct:.1f}% wait time)."
+                f"and starving Go's {pool_size}-connection pool ({pool_pct:.1f}% wait time)."
             )
         elif pool_pct > 60:
             obs_lines.append(f"`{sc}` is primarily starved on Go connection pool acquisition ({pool_pct:.1f}%).")
@@ -223,19 +219,17 @@ def record_diagnostic_experiment(name, config, diagnostic_results, purpose=None,
     if not observation:
         observation = " ".join(obs_lines) if obs_lines else "Diagnostic profiling completed."
 
-    if not next_step:
-        next_step = "Test increasing database connection pool (e.g. pool=25/50) or explore asynchronous append-only transaction batching."
-
     config_str = (
         f"{config.get('vus', 500)} VUs | "
         f"Duration: {config.get('duration', '12s')} | "
-        f"DB Pool: 10 conns | "
+        f"DB Pool: {config.get('pool', 10)} conns | "
         f"Host: {config.get('base_url', 'http://localhost:8080')}"
     )
 
     rps_str = "\n  - ".join(rps_lines) if len(rps_lines) > 1 else (rps_lines[0] if rps_lines else "N/A")
     lat_str = "\n  - ".join(lat_lines) if len(lat_lines) > 1 else (lat_lines[0] if lat_lines else "N/A")
     diag_str = "\n  - ".join(diag_lines) if len(diag_lines) > 1 else (diag_lines[0] if diag_lines else "N/A")
+    next_step_entry = f"- **Next Step:** {next_step}\n" if next_step else ""
 
     entry = (
         f"\n## Experiment {exp_num}: {name}\n"
@@ -247,7 +241,7 @@ def record_diagnostic_experiment(name, config, diagnostic_results, purpose=None,
         f"- **Errors:** 0.00%\n"
         f"- **Relevant Diagnostic Metrics:**\n  - {diag_str}\n"
         f"- **Observation:** {observation}\n"
-        f"- **Next Step:** {next_step}\n\n"
+        f"{next_step_entry}\n"
         f"---\n"
     )
 

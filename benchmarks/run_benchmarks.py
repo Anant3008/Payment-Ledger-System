@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import sys
 import time
 import json
@@ -447,9 +448,26 @@ def compare_runs(name_a, name_b):
 
     print(c("└──────────────────────────────┴─────┴──────────────────────────┴──────────────────────────┴─────────────┘", BOLD) + "\n")
 
+def detect_app_max_open_conns():
+    """Detects SetMaxOpenConns configured in internal/db/postgres.go."""
+    repo_root = os.path.dirname(BENCH_DIR)
+    postgres_go = os.path.join(repo_root, "internal", "db", "postgres.go")
+    if os.path.exists(postgres_go):
+        try:
+            with open(postgres_go, "r") as f:
+                content = f.read()
+            m = re.search(r"db\.SetMaxOpenConns\((\d+)\)", content)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+    return 10
+
 def main():
+    detected_pool = detect_app_max_open_conns()
     parser = argparse.ArgumentParser(description="Payment Ledger Benchmark Runner")
     parser.add_argument("--name", default="baseline", help="Unique name/tag for this run (e.g. baseline, append_only)")
+    parser.add_argument("--pool", type=int, default=detected_pool, help=f"Database connection pool size (auto-detected: {detected_pool})")
     parser.add_argument("--runs", type=int, default=3, help="Number of trials per test level to average (default: 3)")
     parser.add_argument("--base-url", default="http://localhost:8080", help="API base URL")
     parser.add_argument("--duration", default="25s", help="Duration per test trial (e.g. 25s)")
@@ -587,6 +605,7 @@ def main():
                     "duration": args.duration,
                     "trials": args.runs,
                     "vus": vus_list,
+                    "pool": args.pool,
                 },
                 results=all_results,
                 purpose=args.purpose,

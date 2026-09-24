@@ -19,6 +19,7 @@ whether latency comes from:
 """
 
 import os
+import re
 import sys
 import time
 import json
@@ -141,6 +142,7 @@ func main() {
 	scenario := flag.String("scenario", "hot_wallet", "Scenario: hot_wallet or opposing_transfers")
 	vus := flag.Int("vus", 500, "Concurrent workers")
 	durationSec := flag.Int("duration", 10, "Duration in seconds")
+	poolSize := flag.Int("pool", 10, "Database max open connections")
 	dbURL := flag.String("db", "postgres://postgres:postgres@localhost:5432/payment_ledger?sslmode=disable", "Database URL")
 	walletsFile := flag.String("wallets", "benchmarks/data/wallets.json", "Wallets JSON file")
 	flag.Parse()
@@ -165,8 +167,12 @@ func main() {
 	defer db.Close()
 
 	// Exactly mirror application pool limits from internal/db/postgres.go
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	db.SetMaxOpenConns(*poolSize)
+	idleConns := *poolSize / 2
+	if idleConns < 1 {
+		idleConns = 1
+	}
+	db.SetMaxIdleConns(idleConns)
 	db.SetConnMaxLifetime(5 * time.Minute)
 
 	if err := db.Ping(); err != nil {
@@ -382,7 +388,7 @@ def run_http_benchmark(scenario, vus, duration, base_url):
         "http_rps": round(req_values.get("rate", 0.0), 2)
     }
 
-def run_lifecycle_profiler(scenario, vus, duration_sec, db_url):
+def run_lifecycle_profiler(scenario, vus, duration_sec, db_url, pool_size=10):
     """Runs the stage profiler inside the repository tree to measure exact lifecycle stages under concurrency."""
     go_path = os.path.join(DIAG_DIR, "stage_profiler_runner.go")
     with open(go_path, "w") as f:
@@ -394,7 +400,8 @@ def run_lifecycle_profiler(scenario, vus, duration_sec, db_url):
         "-vus", str(vus),
         "-duration", str(duration_sec),
         "-db", db_url,
-        "-wallets", WALLETS_JSON
+        "-wallets", WALLETS_JSON,
+        "-pool", str(pool_size)
     ]
 
     try:
@@ -435,10 +442,10 @@ def run_lifecycle_profiler(scenario, vus, duration_sec, db_url):
         "total_db": calculate_stats(total_dbs)
     }
 
-def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats):
+def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats, pool_size=10):
     w = 112
     print("\n" + c("╔" + "═" * (w - 2) + "╗", CYAN))
-    title = f"DIAGNOSTIC LATENCY BREAKDOWN: {scenario.upper()} @ {vus} VUs"
+    title = f"DIAGNOSTIC LATENCY BREAKDOWN: {scenario.upper()} @ {vus} VUs (Pool={pool_size})"
     print(c("║" + title.center(w - 2) + "║", CYAN))
     print(c("╚" + "═" * (w - 2) + "╝", CYAN))
 
@@ -448,7 +455,7 @@ def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats):
     print(c("─" * w, DIM))
 
     stages = [
-        ("1. DB Connection Pool Wait", "conn_pool_wait", "Waiting in Go sql.DB queue for 1 of 10 connections"),
+        ("1. DB Connection Pool Wait", "conn_pool_wait", f"Waiting in Go sql.DB queue for 1 of {pool_size} connections"),
         ("2. Transaction Start (BEGIN)", "tx_begin", "Executing BEGIN on acquired connection"),
         ("3. Row-Lock Acquisition", "lock_wait", "Blocked on SELECT ... FOR UPDATE (Hot row queue)"),
         ("4. Balance Check & Updates", "wallet_updates", "Balance verification and 2x UPDATE wallets SET"),
@@ -513,22 +520,23 @@ def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats):
     print(c("│", YELLOW) + c(" DIAGNOSTIC ANALYSIS & ROOT-CAUSE DETERMINATION", BOLD).ljust(w - 2) + c("│", YELLOW))
     print(c("├" + "─" * (w - 2) + "┤", YELLOW))
 
-    print(f"{c('│', YELLOW)}  • Connection Pool Wait (Go maxOpenConns=10):  {pool_pct:>5.1f}% of total DB latency")
+    print(f"{c('│', YELLOW)}  • Connection Pool Wait (Go maxOpenConns={pool_size}):  {pool_pct:>5.1f}% of total DB latency")
     print(f"{c('│', YELLOW)}  • Row-Lock Wait (SELECT FOR UPDATE tuple):    {lock_pct:>5.1f}% of total DB latency")
     print(f"{c('│', YELLOW)}  • Pure Database Work (Updates & Inserts):     {work_pct:>5.1f}% of total DB latency")
     print(f"{c('│', YELLOW)}  • Commit & Write-Ahead Logging (WAL sync):    {commit_pct:>5.1f}% of total DB latency")
     print(c("├" + "─" * (w - 2) + "┤", YELLOW))
 
+    queued_requests = max(0, vus - pool_size)
     if pool_pct > 50 and lock_pct > 20:
         verdict = "DUAL BOTTLENECK (Row-Lock Serialization holding Connection Pool):"
         explanation = (
-            "Because transfers lock the hot wallet row, the 10 active connections quickly queue up on PostgreSQL row locks.\n"
-            "  While waiting for the row lock, each transaction holds onto its database connection, starving the remaining\n"
-            "  490 incoming HTTP requests in Go's in-memory connection pool queue."
+            f"Because transfers lock the hot wallet row, the {pool_size} active connections quickly queue up on PostgreSQL row locks.\n"
+            f"  While waiting for the row lock, each transaction holds onto its database connection, starving the remaining\n"
+            f"  {queued_requests} incoming HTTP requests in Go's in-memory connection pool queue."
         )
     elif pool_pct > 60:
         verdict = "CONNECTION POOL SATURATION:"
-        explanation = "Requests spend the overwhelming majority of time blocked waiting for 1 of the 10 database connections."
+        explanation = f"Requests spend the overwhelming majority of time blocked waiting for 1 of the {pool_size} database connections."
     elif lock_pct > 60:
         verdict = "ROW-LEVEL LOCK CONTENTION:"
         explanation = "Requests acquire database connections quickly, but block inside PostgreSQL waiting for exclusive row locks."
@@ -541,8 +549,24 @@ def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats):
         print(f"{c('│', YELLOW)}  {line}")
     print(c("└" + "─" * (w - 2) + "┘\n", YELLOW))
 
+def detect_app_max_open_conns():
+    """Detects SetMaxOpenConns configured in internal/db/postgres.go."""
+    postgres_go = os.path.join(REPO_ROOT, "internal", "db", "postgres.go")
+    if os.path.exists(postgres_go):
+        try:
+            with open(postgres_go, "r") as f:
+                content = f.read()
+            m = re.search(r"db\.SetMaxOpenConns\((\d+)\)", content)
+            if m:
+                return int(m.group(1))
+        except Exception:
+            pass
+    return 10
+
 def main():
+    detected_pool = detect_app_max_open_conns()
     parser = argparse.ArgumentParser(description="Payment Ledger Transfer Lifecycle Contention Diagnostics")
+    parser.add_argument("--pool", type=int, default=detected_pool, help=f"Database connection pool size (auto-detected: {detected_pool})")
     parser.add_argument("--name", default="contention_diagnostic", help="Experiment name (default: contention_diagnostic)")
     parser.add_argument("--purpose", default=None, help="Hypothesis / purpose description for experiment log")
     parser.add_argument("--observation", default=None, help="Observation notes for experiment log")
@@ -585,6 +609,7 @@ def main():
     print(c("║                  TRANSFER LIFECYCLE & CONTENTION DIAGNOSTIC PROFILER                         ║", CYAN))
     print(c("╚══════════════════════════════════════════════════════════════════════════════════════════════╝", CYAN))
     print(f"  Target Concurrency:    {c(str(args.vus) + ' VUs', BOLD)}")
+    print(f"  DB Connection Pool:    {c(str(args.pool) + ' conns (maxOpenConns)', BOLD)}")
     print(f"  Test Duration:         {args.duration}")
     print(f"  Scenarios:             {', '.join(scenarios)}")
     print(f"  API Base URL:          {args.base_url}")
@@ -614,15 +639,15 @@ def main():
         print(c("DONE ✓", GREEN))
 
         # Step 2: In-engine lifecycle stage profiling
-        print(f"  {c('2/2 Profiling transfer lifecycle stages (' + str(args.vus) + ' workers, pool=10)...', DIM)} ", end="", flush=True)
-        db_stats = run_lifecycle_profiler(sc, args.vus, dur_sec, args.db_url)
+        print(f"  {c('2/2 Profiling transfer lifecycle stages (' + str(args.vus) + ' workers, pool=' + str(args.pool) + ')...', DIM)} ", end="", flush=True)
+        db_stats = run_lifecycle_profiler(sc, args.vus, dur_sec, args.db_url, pool_size=args.pool)
         if not db_stats:
             print(c("FAILED", RED))
             continue
         print(c("DONE ✓", GREEN))
 
         diagnostic_results[sc] = {"http": http_stats, "db": db_stats}
-        print_diagnostic_breakdown(sc, args.vus, http_stats, db_stats)
+        print_diagnostic_breakdown(sc, args.vus, http_stats, db_stats, pool_size=args.pool)
 
     print(c("Diagnostics run completed successfully.\n", GREEN))
 
@@ -637,6 +662,7 @@ def main():
                     "duration": args.duration,
                     "scenarios": scenarios,
                     "base_url": args.base_url,
+                    "pool": args.pool,
                 },
                 diagnostic_results=diagnostic_results,
                 purpose=args.purpose,
