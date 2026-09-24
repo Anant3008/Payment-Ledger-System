@@ -259,85 +259,24 @@ func executeTimedTransfer(ctx context.Context, db *sqlx.DB, fromWalletID, toWall
 	defer conn.Close()
 	tConn := time.Since(t0)
 
-	// 2. Stage: Transaction Start (BEGIN)
+	// 2. Stage: Atomic in-engine transfer via process_transfer()
 	t1 := time.Now()
-	tx, err := conn.BeginTxx(ctx, nil)
-	if err != nil {
-		recordErr("conn.BeginTxx", err)
-		return nil
-	}
-	defer tx.Rollback()
-	tBegin := time.Since(t1)
-
-	// 3. Stage: Wallet Lock Acquisition / Wait (Deterministic ID ordering)
-	firstID, secondID := fromWalletID, toWalletID
-	if firstID > secondID {
-		firstID, secondID = secondID, firstID
-	}
-
-	t2 := time.Now()
-	var dummy int
-	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", firstID); err != nil {
-		recordErr(fmt.Sprintf("lock wallet %d", firstID), err)
-		return nil
-	}
-	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", secondID); err != nil {
-		recordErr(fmt.Sprintf("lock wallet %d", secondID), err)
-		return nil
-	}
-	tLock := time.Since(t2)
-
-	// 4. Stage: Balance check + balance updates
-	t3 := time.Now()
-	var currentBalance int64
-	if err := tx.GetContext(ctx, &currentBalance, "SELECT balance FROM wallets WHERE id=$1", fromWalletID); err != nil {
-		recordErr("balance check", err)
-		return nil
-	}
-	if currentBalance < 1 {
-		recordErr("insufficient balance", fmt.Errorf("wallet %d balance %d < 1", fromWalletID, currentBalance))
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance - 1 WHERE id = $1", fromWalletID); err != nil {
-		recordErr("update sender balance", err)
-		return nil
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance + 1 WHERE id = $1", toWalletID); err != nil {
-		recordErr("update receiver balance", err)
-		return nil
-	}
-	tUpdates := time.Since(t3)
-
-	// 5. Stage: Transaction and ledger entry inserts
-	t4 := time.Now()
 	var txID int
-	if err := tx.QueryRowxContext(ctx, "INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, 1, 'transfer', 'completed') RETURNING id", fromWalletID).Scan(&txID); err != nil {
-		recordErr("insert transaction", err)
+	if err := conn.QueryRowxContext(ctx, "SELECT process_transfer($1, $2, 1)", fromWalletID, toWalletID).Scan(&txID); err != nil {
+		recordErr("process_transfer", err)
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO ledger_entries (transaction_id, wallet_id, amount) VALUES ($1, $2, -1), ($1, $3, 1)", txID, fromWalletID, toWalletID); err != nil {
-		recordErr("insert ledger entries", err)
-		return nil
-	}
-	tInserts := time.Since(t4)
+	tExec := time.Since(t1)
 
-	// 6. Stage: Commit & WAL Flush
-	t5 := time.Now()
-	if err := tx.Commit(); err != nil {
-		recordErr("commit tx", err)
-		return nil
-	}
-	tCommit := time.Since(t5)
-
-	totalDb := tConn + tBegin + tLock + tUpdates + tInserts + tCommit
+	totalDb := tConn + tExec
 
 	return &StageTiming{
 		ConnWaitMs:      float64(tConn.Microseconds()) / 1000.0,
-		TxBeginMs:       float64(tBegin.Microseconds()) / 1000.0,
-		LockWaitMs:      float64(tLock.Microseconds()) / 1000.0,
-		WalletUpdatesMs: float64(tUpdates.Microseconds()) / 1000.0,
-		InsertsMs:       float64(tInserts.Microseconds()) / 1000.0,
-		CommitMs:        float64(tCommit.Microseconds()) / 1000.0,
+		TxBeginMs:       0,
+		LockWaitMs:      float64(tExec.Microseconds()) / 1000.0,
+		WalletUpdatesMs: 0,
+		InsertsMs:       0,
+		CommitMs:        0,
 		TotalDbMs:       float64(totalDb.Microseconds()) / 1000.0,
 	}
 }
@@ -454,15 +393,22 @@ def print_diagnostic_breakdown(scenario, vus, http_stats, db_stats, pool_size=10
     print(f"  {c('Profiled Database Transactions:', BOLD):<32} {db_stats['samples_count']} operations")
     print(c("─" * w, DIM))
 
-    stages = [
-        ("1. DB Connection Pool Wait", "conn_pool_wait", f"Waiting in Go sql.DB queue for 1 of {pool_size} connections"),
-        ("2. Transaction Start (BEGIN)", "tx_begin", "Executing BEGIN on acquired connection"),
-        ("3. Row-Lock Acquisition", "lock_wait", "Blocked on SELECT ... FOR UPDATE (Hot row queue)"),
-        ("4. Balance Check & Updates", "wallet_updates", "Balance verification and 2x UPDATE wallets SET"),
-        ("5. Ledger & Tx Inserts", "ledger_inserts", "INSERT INTO transactions + 2x ledger_entries"),
-        ("6. COMMIT & WAL Sync", "commit_wal", "fsync / WAL persistence flush to disk"),
-        ("Total In-Database Lifecycle", "total_db", "Sum of all in-database lifecycle operations")
-    ]
+    if db_stats.get("tx_begin", {}).get("avg", 0) == 0 and db_stats.get("wallet_updates", {}).get("avg", 0) == 0:
+        stages = [
+            ("1. DB Connection Pool Wait", "conn_pool_wait", f"Waiting in Go sql.DB queue for 1 of {pool_size} connections"),
+            ("2. Atomic Engine Exec (process_transfer)", "lock_wait", "Lock acquisition, balance verification, updates, inserts, commit"),
+            ("Total In-Database Lifecycle", "total_db", "Sum of all in-database lifecycle operations")
+        ]
+    else:
+        stages = [
+            ("1. DB Connection Pool Wait", "conn_pool_wait", f"Waiting in Go sql.DB queue for 1 of {pool_size} connections"),
+            ("2. Transaction Start (BEGIN)", "tx_begin", "Executing BEGIN on acquired connection"),
+            ("3. Row-Lock Acquisition", "lock_wait", "Blocked on SELECT ... FOR UPDATE (Hot row queue)"),
+            ("4. Balance Check & Updates", "wallet_updates", "Balance verification and 2x UPDATE wallets SET"),
+            ("5. Ledger & Tx Inserts", "ledger_inserts", "INSERT INTO transactions + 2x ledger_entries"),
+            ("6. COMMIT & WAL Sync", "commit_wal", "fsync / WAL persistence flush to disk"),
+            ("Total In-Database Lifecycle", "total_db", "Sum of all in-database lifecycle operations")
+        ]
 
     total_avg = db_stats["total_db"]["avg"] or 1.0
 

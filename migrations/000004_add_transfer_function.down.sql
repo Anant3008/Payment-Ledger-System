@@ -1,0 +1,1 @@
+DROP FUNCTION IF EXISTS process_transfer(INT, INT, BIGINT);

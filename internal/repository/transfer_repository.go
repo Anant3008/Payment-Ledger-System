@@ -2,10 +2,12 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
 	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -17,69 +19,38 @@ func NewTransferRepository(db *sqlx.DB) *TransferRepository {
 	return &TransferRepository{db: db}
 }
 
-// ExecuteTransfer handles the atomic database operations for moving funds.
+// ExecuteTransfer handles atomic fund movement in a single database round-trip
+// via the process_transfer stored procedure.
 func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, toWalletID int, amount int64) error {
-	tx, err := r.db.BeginTxx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	// Lock wallets in consistent order to prevent deadlocks
-	firstID, secondID := fromWalletID, toWalletID
-	if firstID > secondID {
-		firstID, secondID = secondID, firstID
-	}
-
-	var dummy int
-	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", firstID); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("wallet %d: %w", firstID, apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("lock wallet %d: %w", firstID, err)
-	}
-	if err := tx.GetContext(ctx, &dummy, "SELECT id FROM wallets WHERE id=$1 FOR UPDATE", secondID); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("wallet %d: %w", secondID, apperrors.ErrNotFound)
-		}
-		return fmt.Errorf("lock wallet %d: %w", secondID, err)
-	}
-
-	// Check sender balance
-	var senderBalance int64
-	if err := tx.GetContext(ctx, &senderBalance, "SELECT balance FROM wallets WHERE id=$1", fromWalletID); err != nil {
-		return fmt.Errorf("get sender balance: %w", err)
-	}
-	if senderBalance < amount {
-		return fmt.Errorf("sender balance %d < amount %d: %w", senderBalance, amount, apperrors.ErrInsufficientFunds)
-	}
-
-	// Update balances
-	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance - $1 WHERE id = $2", amount, fromWalletID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE wallets SET balance = balance + $1 WHERE id = $2", amount, toWalletID); err != nil {
-		return err
-	}
-
-	// Record transaction
 	var txID int
-	err = tx.QueryRowxContext(ctx,
-		`INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, $2, $3, $4) RETURNING id`,
-		fromWalletID, amount, "transfer", "completed",
-	).Scan(&txID)
+	err := r.db.QueryRowxContext(ctx, "SELECT process_transfer($1, $2, $3)", fromWalletID, toWalletID, amount).Scan(&txID)
 	if err != nil {
-		return err
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			switch pgErr.Code {
+			case "P0001":
+				return fmt.Errorf("%s: %w", pgErr.Message, apperrors.ErrInsufficientFunds)
+			case "P0002":
+				return fmt.Errorf("%s: %w", pgErr.Message, apperrors.ErrNotFound)
+			case "22023":
+				return fmt.Errorf("%s: %w", pgErr.Message, apperrors.ErrInvalidInput)
+			}
+		}
+
+		msg := err.Error()
+		if strings.Contains(msg, "insufficient funds") {
+			return fmt.Errorf("%s: %w", msg, apperrors.ErrInsufficientFunds)
+		}
+		if strings.Contains(msg, "resource not found") {
+			return fmt.Errorf("%s: %w", msg, apperrors.ErrNotFound)
+		}
+		if strings.Contains(msg, "cannot transfer to self") || strings.Contains(msg, "amount must be greater than zero") {
+			return fmt.Errorf("%s: %w", msg, apperrors.ErrInvalidInput)
+		}
+
+		return fmt.Errorf("process transfer: %w", err)
 	}
 
-	// Record ledger entries
-	_, err = tx.ExecContext(ctx,
-		`INSERT INTO ledger_entries (transaction_id, wallet_id, amount) VALUES ($1, $2, $3), ($1, $4, $5)`,
-		txID, fromWalletID, -amount, toWalletID, amount,
-	)
-	if err != nil {
-		return err
-	}
-
-	return tx.Commit()
+	return nil
 }
+
