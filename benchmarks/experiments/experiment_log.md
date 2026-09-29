@@ -126,3 +126,20 @@ Centralized ledger of benchmark and diagnostic experiments tracking performance,
 - **Observation:** Deterministic lock ordering strictly prevented deadlocks under all loads. Hot-wallet throughput collapsed under lock contention (p99: 5.48s).
 
 ---
+
+## Experiment 008: strategy1_validation
+- **Date:** 2026-09-29 15:01:57
+- **Hypothesis / Purpose:** Validate whether Strategy 1 atomic PostgreSQL transfer function produces a repeatable performance improvement over baseline
+- **Configuration:** 10, 50, 100, 250, 500 VUs | Duration: 25s | Trials: 3x avg | Host: http://localhost:8080 | DB Pool: 10 conns
+- **RPS:**
+  - `hot_wallet` (500 VUs): 239.39 r/s
+  - `opposing_transfers` (500 VUs): 232.62 r/s
+- **p50 / p95 / p99:**
+  - `hot_wallet` (500 VUs): p50: 1.82s | p95: 4.22s | p99: 5.51s
+  - `opposing_transfers` (500 VUs): p50: 1.87s | p95: 4.36s | p99: 5.85s
+- **Errors:** 0.00% across all scenarios
+- **Relevant Diagnostic Metrics:** Peak concurrent row locks: 9 | Total deadlocks: 0 (invariant preserved)
+- **Observation:** Three repeated trials under identical configuration
+- **Next Step:** Compare against baseline and determine whether Strategy 1 improvement is stable before implementing Strategy 2
+
+---

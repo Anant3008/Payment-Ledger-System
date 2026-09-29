@@ -1,0 +1,26 @@
+{
+  "name": "test_vus_250",
+  "timestamp": "2026-09-29T15:09:28.704625",
+  "config": {
+    "host": "http://localhost:8080",
+    "duration": "10s",
+    "trials": 1,
+    "vus": [
+      250
+    ]
+  },
+  "results": [
+    {
+      "scenario": "hot_wallet",
+      "vus": 250,
+      "rps": 236.88,
+      "p50_ms": 921.51,
+      "p90_ms": 1759.39,
+      "p95_ms": 2083.24,
+      "p99_ms": 2953.51,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    }
+  ]
+}

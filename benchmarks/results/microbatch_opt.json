@@ -1,6 +1,6 @@
 {
-  "name": "microbatch_opposing",
-  "timestamp": "2026-09-29T15:45:29.367020",
+  "name": "microbatch_opt",
+  "timestamp": "2026-09-29T15:44:56.796157",
   "config": {
     "host": "http://localhost:8080",
     "duration": "10s",
@@ -11,13 +11,13 @@
   },
   "results": [
     {
-      "scenario": "opposing_transfers",
+      "scenario": "hot_wallet",
       "vus": 500,
-      "rps": 1152.35,
-      "p50_ms": 410.22,
-      "p90_ms": 553.09,
-      "p95_ms": 626.56,
-      "p99_ms": 709.7,
+      "rps": 1530.5,
+      "p50_ms": 322.59,
+      "p90_ms": 367.36,
+      "p95_ms": 378.5,
+      "p99_ms": 400.4,
       "errors_pct": 0.0,
       "peak_locks": 0,
       "deadlocks": 0

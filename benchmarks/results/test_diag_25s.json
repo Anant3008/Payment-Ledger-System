@@ -1,0 +1,26 @@
+{
+  "name": "test_diag_25s",
+  "timestamp": "2026-09-29T15:07:54.038035",
+  "config": {
+    "host": "http://localhost:8080",
+    "duration": "25s",
+    "trials": 1,
+    "vus": [
+      500
+    ]
+  },
+  "results": [
+    {
+      "scenario": "hot_wallet",
+      "vus": 500,
+      "rps": 555.61,
+      "p50_ms": 759.34,
+      "p90_ms": 1584.24,
+      "p95_ms": 1908.7,
+      "p99_ms": 2874.23,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    }
+  ]
+}

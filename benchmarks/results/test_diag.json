@@ -1,0 +1,26 @@
+{
+  "name": "test_diag",
+  "timestamp": "2026-09-29T15:07:19.138050",
+  "config": {
+    "host": "http://localhost:8080",
+    "duration": "10s",
+    "trials": 1,
+    "vus": [
+      500
+    ]
+  },
+  "results": [
+    {
+      "scenario": "hot_wallet",
+      "vus": 500,
+      "rps": 574.88,
+      "p50_ms": 749.44,
+      "p90_ms": 1474.6,
+      "p95_ms": 1748.56,
+      "p99_ms": 2382.47,
+      "errors_pct": 0.0,
+      "peak_locks": 9,
+      "deadlocks": 0
+    }
+  ]
+}

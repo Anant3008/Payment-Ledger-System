@@ -39,6 +39,8 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	transferService := services.NewTransferService(transferRepo)
 	ledgerService := services.NewLedgerService(ledgerRepo, txRepo, walletRepo)
 
+	transferService.StartBatchWorker()
+
 	walletHandler := handlers.NewWalletHandler(walletService)
 	transferHandler := handlers.NewTransferHandler(transferService)
 	ledgerHandler := handlers.NewLedgerHandler(ledgerService)
