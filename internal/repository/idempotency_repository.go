@@ -44,3 +44,13 @@ func (r *IdempotencyRepository) Update(ctx context.Context, key string, code int
 	_, err := r.db.ExecContext(ctx, query, code, body, key)
 	return err
 }
+
+func (r *IdempotencyRepository) SweepExpiredKeys(ctx context.Context, cutoff string) (int64, error) {
+	// Deletes keys older than the specified PostgreSQL interval (e.g., '24 hours')
+	query := `DELETE FROM idempotency_keys WHERE created_at < now() - $1::interval`
+	res, err := r.db.ExecContext(ctx, query, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
