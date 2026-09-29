@@ -77,6 +77,7 @@ func TestWalletAndTransferService_Integration(t *testing.T) {
 
 	walletService := services.NewWalletService(walletRepo)
 	transferService := services.NewTransferService(transferRepo)
+	transferService.StartBatchWorker()
 	ctx := context.Background()
 
 	// 1. Create Wallet via Service

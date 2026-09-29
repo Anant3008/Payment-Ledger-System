@@ -40,6 +40,9 @@ func main() {
 	transferService := services.NewTransferService(transferRepo)
 	ledgerService := services.NewLedgerService(ledgerRepo, txRepo, walletRepo)
 
+	// Start background micro-batching worker
+	transferService.StartBatchWorker()
+
 	// 3. Handlers
 	walletHandler := handlers.NewWalletHandler(walletService)
 	transferHandler := handlers.NewTransferHandler(transferService)
@@ -94,6 +97,9 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
+
+	// Stop batching worker to flush remaining transfers
+	transferService.Stop()
 
 	// The context is used to inform the server it has 5 seconds to finish
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

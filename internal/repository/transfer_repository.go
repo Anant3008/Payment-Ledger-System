@@ -19,11 +19,14 @@ func NewTransferRepository(db *sqlx.DB) *TransferRepository {
 	return &TransferRepository{db: db}
 }
 
-// ExecuteTransfer handles atomic fund movement in a single database round-trip
-// via the process_transfer stored procedure.
-func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, toWalletID int, amount int64) error {
-	var txID int
-	err := r.db.QueryRowxContext(ctx, "SELECT process_transfer($1, $2, $3)", fromWalletID, toWalletID, amount).Scan(&txID)
+// ExecuteBatch handles atomic fund movement for multiple transfers in a single database round-trip
+// via the process_transfer_batch stored procedure.
+func (r *TransferRepository) ExecuteBatch(ctx context.Context, fromWalletIDs, toWalletIDs []int, amounts []int64) error {
+	if len(fromWalletIDs) == 0 {
+		return nil
+	}
+
+	_, err := r.db.ExecContext(ctx, "SELECT process_transfer_batch($1, $2, $3)", fromWalletIDs, toWalletIDs, amounts)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
@@ -48,9 +51,13 @@ func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, 
 			return fmt.Errorf("%s: %w", msg, apperrors.ErrInvalidInput)
 		}
 
-		return fmt.Errorf("process transfer: %w", err)
+		return fmt.Errorf("process transfer batch: %w", err)
 	}
 
 	return nil
 }
 
+// ExecuteTransfer handles a single transfer request by passing it through the batching layer as an array of length 1.
+func (r *TransferRepository) ExecuteTransfer(ctx context.Context, fromWalletID, toWalletID int, amount int64) error {
+	return r.ExecuteBatch(ctx, []int{fromWalletID}, []int{toWalletID}, []int64{amount})
+}
