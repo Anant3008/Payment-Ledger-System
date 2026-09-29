@@ -31,7 +31,10 @@ BEGIN
     ) INTO v_locked_ids;
 
     -- Lock the rows
-    PERFORM id FROM wallets WHERE id = ANY(v_locked_ids) FOR UPDATE;
+    -- ORDER BY is crucial here because ANY() does not guarantee lock acquisition order
+    FOR i IN 1..array_length(v_locked_ids, 1) LOOP
+        PERFORM id FROM wallets WHERE id = v_locked_ids[i] FOR UPDATE;
+    END LOOP;
 
     -- 2. Process each transfer in the batch
     FOR i IN 1..v_batch_size LOOP
