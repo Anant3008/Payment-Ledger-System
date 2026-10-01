@@ -67,19 +67,26 @@ HTTP Client
 ## Financial Invariants & Correctness Guarantees
 
 1. **Strict Double-Entry Bookkeeping:**
-   - Money can neither be created nor destroyed. Every transaction generates balanced entries in `ledger_entries`:
-     $$\sum \text{debits} + \sum \text{credits} = 0$$
+   - Money can neither be created nor destroyed. Every transaction generates balanced debit and credit entries in `ledger_entries`:
+     ```text
+     SUM(debits) + SUM(credits) == 0
+     ```
    - Every ledger row references an immutable `transactions` parent record for complete auditability.
 
 2. **Zero System Money Drift (Global Reconciliation):**
    - The system satisfies the global balance invariant from day zero (including initial balances):
-     $$\sum_{\text{all wallets}} \text{wallet.balance} = \sum_{\text{all ledger entries}} \text{ledger\_entry.amount}$$
+     ```text
+     SUM(wallets.balance) == SUM(ledger_entries.amount)
+     ```
    - Verified continuously by an independent background daemon (`cmd/audit-worker`).
 
 3. **Deterministic Deadlock Prevention:**
    - Multi-account transfers lock rows strictly in ascending numerical order:
-     $$\text{firstID} = \min(A, B), \quad \text{secondID} = \max(A, B)$$
-   - Mathematically eliminates circular wait conditions, passing brutal 40-concurrent opposing-transfer stress tests ($A \to B$ and $B \to A$ at the same millisecond) with zero SQL `40P01` deadlocks.
+     ```text
+     first_id  = min(wallet_a, wallet_b)
+     second_id = max(wallet_a, wallet_b)
+     ```
+   - Mathematically eliminates circular wait conditions, passing brutal 40-concurrent opposing-transfer stress tests (A -> B and B -> A at the exact same millisecond) with zero SQL `40P01` deadlocks.
 
 4. **Overdraft Protection (Non-Negative Balances):**
    - Balances are verified inside the atomic database engine lock. Overdraft attempts trigger instant rollback (`ERRCODE = 'P0001'`), returning `400 Bad Request` with zero balance mutation.
