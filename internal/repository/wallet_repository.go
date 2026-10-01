@@ -17,8 +17,38 @@ type WalletRepository struct {
 func NewWalletRepository(db *sqlx.DB) *WalletRepository { return &WalletRepository{db: db} }
 
 func (r *WalletRepository) Create(ctx context.Context, w *models.Wallet) error {
-    query := `INSERT INTO wallets (owner, balance) VALUES ($1, $2) RETURNING id, created_at`
-    return r.db.QueryRowxContext(ctx, query, w.Owner, w.Balance).Scan(&w.ID, &w.CreatedAt)
+	if w.Balance < 0 {
+		return fmt.Errorf("initial balance cannot be negative: %w", errors.ErrInvalidInput)
+	}
+
+	if w.Balance == 0 {
+		query := `INSERT INTO wallets (owner, balance) VALUES ($1, $2) RETURNING id, created_at`
+		return r.db.QueryRowxContext(ctx, query, w.Owner, w.Balance).Scan(&w.ID, &w.CreatedAt)
+	}
+
+	tx, err := r.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	queryWallet := `INSERT INTO wallets (owner, balance) VALUES ($1, $2) RETURNING id, created_at`
+	if err := tx.QueryRowxContext(ctx, queryWallet, w.Owner, w.Balance).Scan(&w.ID, &w.CreatedAt); err != nil {
+		return fmt.Errorf("insert wallet: %w", err)
+	}
+
+	var txID int
+	queryTx := `INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, $2, 'deposit', 'completed') RETURNING id`
+	if err := tx.QueryRowxContext(ctx, queryTx, w.ID, w.Balance).Scan(&txID); err != nil {
+		return fmt.Errorf("insert initial deposit transaction: %w", err)
+	}
+
+	queryLedger := `INSERT INTO ledger_entries (transaction_id, wallet_id, amount) VALUES ($1, $2, $3)`
+	if _, err := tx.ExecContext(ctx, queryLedger, txID, w.ID, w.Balance); err != nil {
+		return fmt.Errorf("insert initial ledger entry: %w", err)
+	}
+
+	return tx.Commit()
 }
 
 func (r *WalletRepository) GetByID(ctx context.Context, id int) (*models.Wallet, error) {

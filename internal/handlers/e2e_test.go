@@ -156,7 +156,7 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 		t.Fatalf("expected Bob final balance 1500, got %d", bobFinal.Balance)
 	}
 
-	// 7. Verify Alice's ledger via GET /wallets/:id/ledger (should have deposit +500 and transfer debit -1000)
+	// 7. Verify Alice's ledger via GET /wallets/:id/ledger (should have transfer debit -1000, deposit +500, and initial deposit +2000)
 	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("/wallets/%d/ledger?limit=10&offset=0", alice.ID), nil)
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -168,8 +168,11 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 		Entries  []models.LedgerEntry `json:"entries"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &ledgerResp)
-	if len(ledgerResp.Entries) != 2 {
-		t.Fatalf("expected 2 ledger entries for Alice, got %d", len(ledgerResp.Entries))
+	if len(ledgerResp.Entries) != 3 {
+		t.Fatalf("expected 3 ledger entries for Alice, got %d", len(ledgerResp.Entries))
+	}
+	if ledgerResp.Entries[0].Amount != -1000 || ledgerResp.Entries[1].Amount != 500 || ledgerResp.Entries[2].Amount != 2000 {
+		t.Fatalf("unexpected Alice ledger entries: %+v", ledgerResp.Entries)
 	}
 
 	// 8. Overdraft withdrawal test: Alice tries to withdraw 5000 when balance is 1500 -> 400 Bad Request
