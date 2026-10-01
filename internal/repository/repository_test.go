@@ -62,6 +62,19 @@ func TestWalletRepository_CreateAndGet(t *testing.T) {
 		t.Fatalf("fetched wallet mismatch: got %+v, expected %+v", fetched, w)
 	}
 
+	// Verify initial balance created a corresponding ledger entry
+	ledgerRepo := repository.NewLedgerRepository(conn)
+	entries, err := ledgerRepo.ListByWallet(ctx, w.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("failed to fetch ledger: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 initial ledger entry, got %d", len(entries))
+	}
+	if entries[0].Amount != 1250 {
+		t.Fatalf("expected ledger entry amount 1250, got %d", entries[0].Amount)
+	}
+
 	// 3. Query non-existent wallet
 	_, err = repo.GetByID(ctx, 99999999)
 	if err == nil {
@@ -107,16 +120,19 @@ func TestWalletRepository_DepositAndWithdrawal_LedgerIntegrity(t *testing.T) {
 		t.Fatalf("expected balance 1500, got %d", afterDeposit.Balance)
 	}
 
-	// Verify ledger entry
+	// Verify ledger entries (initial deposit 1000 + deposit 500)
 	entries, err := ledgerRepo.ListByWallet(ctx, w.ID, 10, 0)
 	if err != nil {
 		t.Fatalf("failed to fetch ledger: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("expected 1 ledger entry, got %d", len(entries))
+	if len(entries) != 2 {
+		t.Fatalf("expected 2 ledger entries, got %d", len(entries))
 	}
 	if entries[0].Amount != 500 || entries[0].TransactionID != depositTx.ID {
-		t.Fatalf("unexpected ledger entry: %+v", entries[0])
+		t.Fatalf("unexpected deposit ledger entry: %+v", entries[0])
+	}
+	if entries[1].Amount != 1000 {
+		t.Fatalf("expected initial deposit ledger entry of 1000, got %+v", entries[1])
 	}
 
 	// 2. Withdraw 400
@@ -137,13 +153,13 @@ func TestWalletRepository_DepositAndWithdrawal_LedgerIntegrity(t *testing.T) {
 		t.Fatalf("expected balance 1100, got %d", afterWithdraw.Balance)
 	}
 
-	// Verify ledger entries (now 2: +500 and -400)
+	// Verify ledger entries (now 3: -400, +500, +1000)
 	entries, err = ledgerRepo.ListByWallet(ctx, w.ID, 10, 0)
 	if err != nil {
 		t.Fatalf("failed to fetch ledger: %v", err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("expected 2 ledger entries, got %d", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 ledger entries, got %d", len(entries))
 	}
 	// Ordered descending by ID: latest is withdrawal (-400)
 	if entries[0].Amount != -400 {
@@ -151,6 +167,15 @@ func TestWalletRepository_DepositAndWithdrawal_LedgerIntegrity(t *testing.T) {
 	}
 	if entries[1].Amount != 500 {
 		t.Fatalf("expected previous ledger entry to be 500, got %d", entries[1].Amount)
+	}
+	if entries[2].Amount != 1000 {
+		t.Fatalf("expected initial ledger entry to be 1000, got %d", entries[2].Amount)
+	}
+
+	// Double-entry accounting check: sum of all ledger entries must equal current wallet balance
+	sum := entries[0].Amount + entries[1].Amount + entries[2].Amount
+	if sum != afterWithdraw.Balance {
+		t.Fatalf("ledger entries sum (%d) does not match wallet balance (%d)", sum, afterWithdraw.Balance)
 	}
 
 	// 3. Overdraft Withdrawal Attempt (Attempting to withdraw 5000 from 1100)
@@ -162,14 +187,14 @@ func TestWalletRepository_DepositAndWithdrawal_LedgerIntegrity(t *testing.T) {
 		t.Fatalf("expected ErrInsufficientFunds, got %v", err)
 	}
 
-	// Verify Atomic Rollback: balance must STILL be 1100 and ledger entries count STILL 2
+	// Verify Atomic Rollback: balance must STILL be 1100 and ledger entries count STILL 3
 	finalWallet, _ := walletRepo.GetByID(ctx, w.ID)
 	if finalWallet.Balance != 1100 {
 		t.Fatalf("balance mutated on failed withdrawal! expected 1100, got %d", finalWallet.Balance)
 	}
 	finalEntries, _ := ledgerRepo.ListByWallet(ctx, w.ID, 10, 0)
-	if len(finalEntries) != 2 {
-		t.Fatalf("ledger entries mutated on failed withdrawal! expected 2, got %d", len(finalEntries))
+	if len(finalEntries) != 3 {
+		t.Fatalf("ledger entries mutated on failed withdrawal! expected 3, got %d", len(finalEntries))
 	}
 }
 
@@ -210,25 +235,31 @@ func TestTransferRepository_AtomicDoubleEntryTransfer(t *testing.T) {
 		t.Fatalf("expected Bob balance 3500, got %d", bobAfter.Balance)
 	}
 
-	// Check Ledger Entries for Alice (Debit -1500)
+	// Check Ledger Entries for Alice (Debit -1500, Initial Deposit +5000)
 	aliceEntries, err := ledgerRepo.ListByWallet(ctx, alice.ID, 10, 0)
-	if err != nil || len(aliceEntries) != 1 {
-		t.Fatalf("expected 1 ledger entry for Alice, got %d (err: %v)", len(aliceEntries), err)
+	if err != nil || len(aliceEntries) != 2 {
+		t.Fatalf("expected 2 ledger entries for Alice (transfer + initial), got %d (err: %v)", len(aliceEntries), err)
 	}
 	if aliceEntries[0].Amount != -1500 {
-		t.Fatalf("expected Alice debit -1500, got %d", aliceEntries[0].Amount)
+		t.Fatalf("expected Alice transfer debit -1500, got %d", aliceEntries[0].Amount)
+	}
+	if aliceEntries[1].Amount != 5000 {
+		t.Fatalf("expected Alice initial deposit 5000, got %d", aliceEntries[1].Amount)
 	}
 
-	// Check Ledger Entries for Bob (Credit +1500)
+	// Check Ledger Entries for Bob (Credit +1500, Initial Deposit +2000)
 	bobEntries, err := ledgerRepo.ListByWallet(ctx, bob.ID, 10, 0)
-	if err != nil || len(bobEntries) != 1 {
-		t.Fatalf("expected 1 ledger entry for Bob, got %d (err: %v)", len(bobEntries), err)
+	if err != nil || len(bobEntries) != 2 {
+		t.Fatalf("expected 2 ledger entries for Bob (transfer + initial), got %d (err: %v)", len(bobEntries), err)
 	}
 	if bobEntries[0].Amount != 1500 {
-		t.Fatalf("expected Bob credit +1500, got %d", bobEntries[0].Amount)
+		t.Fatalf("expected Bob transfer credit +1500, got %d", bobEntries[0].Amount)
+	}
+	if bobEntries[1].Amount != 2000 {
+		t.Fatalf("expected Bob initial deposit 2000, got %d", bobEntries[1].Amount)
 	}
 
-	// Double-entry accounting rule: The two entries must share the same transaction_id
+	// Double-entry accounting rule: The two transfer entries must share the same transaction_id
 	if aliceEntries[0].TransactionID != bobEntries[0].TransactionID {
 		t.Fatalf("double-entry ledger entries must share same transaction_id: %d vs %d",
 			aliceEntries[0].TransactionID, bobEntries[0].TransactionID)
@@ -415,5 +446,50 @@ func TestLedgerRepository_PaginationAndOrdering(t *testing.T) {
 		if seen[e.ID] {
 			t.Fatalf("duplicate entry %d found across pages 1 and 2", e.ID)
 		}
+	}
+}
+
+// 7. Initial Balance Ledger Creation & Reconciliation
+func TestWalletRepository_CreateWithInitialBalance_ReconcilesLedger(t *testing.T) {
+	conn := setupTestDB(t)
+	defer conn.Close()
+
+	walletRepo := repository.NewWalletRepository(conn)
+	ledgerRepo := repository.NewLedgerRepository(conn)
+	txRepo := repository.NewTransactionRepository(conn)
+	ctx := context.Background()
+
+	const initialBalance int64 = 7500
+	w := &models.Wallet{
+		Owner:   fmt.Sprintf("InitialBalanceAudit-%d", time.Now().UnixNano()),
+		Balance: initialBalance,
+	}
+
+	if err := walletRepo.Create(ctx, w); err != nil {
+		t.Fatalf("failed to create wallet with initial balance: %v", err)
+	}
+
+	// Verify wallet row balance
+	fetched, err := walletRepo.GetByID(ctx, w.ID)
+	if err != nil || fetched.Balance != initialBalance {
+		t.Fatalf("expected balance %d, got %v (err: %v)", initialBalance, fetched, err)
+	}
+
+	// Verify transaction record was created
+	txs, err := txRepo.ListByWallet(ctx, w.ID, 10, 0)
+	if err != nil || len(txs) != 1 {
+		t.Fatalf("expected 1 initial deposit transaction, got %d (err: %v)", len(txs), err)
+	}
+	if txs[0].Amount != initialBalance || txs[0].Type != "deposit" || txs[0].Status != "completed" {
+		t.Fatalf("unexpected transaction: %+v", txs[0])
+	}
+
+	// Verify ledger entry was created with matching transaction_id
+	entries, err := ledgerRepo.ListByWallet(ctx, w.ID, 10, 0)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected 1 initial ledger entry, got %d (err: %v)", len(entries), err)
+	}
+	if entries[0].Amount != initialBalance || entries[0].TransactionID != txs[0].ID {
+		t.Fatalf("unexpected ledger entry: %+v", entries[0])
 	}
 }

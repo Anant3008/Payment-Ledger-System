@@ -71,7 +71,7 @@ func TestLedgerService_PaginationAndClamping(t *testing.T) {
 
 	w := &models.Wallet{
 		Owner:   fmt.Sprintf("ServiceTest-%d", time.Now().UnixNano()),
-		Balance: 1000,
+		Balance: 0,
 	}
 	if err := walletRepo.Create(ctx, w); err != nil {
 		t.Fatalf("failed to create wallet: %v", err)
