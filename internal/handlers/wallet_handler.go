@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
+	"github.com/Anant3008/payment-ledger-system/internal/models"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -39,6 +40,15 @@ func (h *WalletHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, wallet)
 }
 
+func (h *WalletHandler) List(c *gin.Context) {
+	wallets, err := h.service.ListWallets(c.Request.Context())
+	if err != nil {
+		c.Error(err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": wallets})
+}
+
 func (h *WalletHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -57,20 +67,28 @@ func (h *WalletHandler) Get(c *gin.Context) {
 }
 
 type amountReq struct {
-	Amount int64 `json:"amount" binding:"required,gt=0"`
+	WalletID models.FlexibleID `json:"wallet_id"`
+	Amount   int64             `json:"amount" binding:"required,gt=0"`
 }
 
 func (h *WalletHandler) Deposit(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
-		return
-	}
-
 	var req amountReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(fmt.Errorf("bind json: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	id := req.WalletID.Int()
+	if idStr := c.Param("id"); idStr != "" {
+		parsedID, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
+			return
+		}
+		id = parsedID
+	}
+	if id <= 0 {
+		c.Error(fmt.Errorf("invalid wallet id: %w", apperrors.ErrInvalidInput))
 		return
 	}
 
@@ -84,16 +102,23 @@ func (h *WalletHandler) Deposit(c *gin.Context) {
 }
 
 func (h *WalletHandler) Withdraw(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
-		return
-	}
-
 	var req amountReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.Error(fmt.Errorf("bind json: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	id := req.WalletID.Int()
+	if idStr := c.Param("id"); idStr != "" {
+		parsedID, err := strconv.Atoi(idStr)
+		if err != nil {
+			c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
+			return
+		}
+		id = parsedID
+	}
+	if id <= 0 {
+		c.Error(fmt.Errorf("invalid wallet id: %w", apperrors.ErrInvalidInput))
 		return
 	}
 

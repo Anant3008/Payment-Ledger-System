@@ -37,6 +37,11 @@ func (s *WalletService) GetWallet(ctx context.Context, id int) (*models.Wallet, 
 	return s.repo.GetByID(ctx, id)
 }
 
+// ListWallets retrieves all wallets ordered by ID.
+func (s *WalletService) ListWallets(ctx context.Context) ([]models.Wallet, error) {
+	return s.repo.List(ctx)
+}
+
 // Deposit validates input and deposits funds into a wallet.
 func (s *WalletService) Deposit(ctx context.Context, walletID int, amount int64) (*models.Transaction, error) {
 	if amount <= 0 {

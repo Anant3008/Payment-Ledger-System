@@ -16,6 +16,7 @@ import (
 	"github.com/Anant3008/payment-ledger-system/internal/handlers"
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
+	"github.com/Anant3008/payment-ledger-system/web"
 	"github.com/gin-gonic/gin"
 )
 
@@ -59,18 +60,48 @@ func main() {
 			c.JSON(500, gin.H{"status": "unhealthy", "error": err.Error()})
 			return
 		}
-		c.JSON(200, gin.H{"status": "ok"})
+		c.JSON(200, gin.H{
+			"status":  "ok",
+			"version": "1.0.0",
+			"database": gin.H{
+				"status":   "up",
+				"driver":   "postgres",
+				"pool_max": 10,
+			},
+			"capabilities": []string{
+				"double-entry-reconciliation",
+				"in-memory-microbatching",
+				"deadlock-free-locking",
+				"cryptographic-idempotency",
+				"non-negative-check-constraint",
+			},
+		})
 	})
 
 	// Routes
 	router.POST("/wallets", walletHandler.Create)
 	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
 	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	router.POST("/deposits", walletHandler.Deposit)
+	router.POST("/withdrawals", walletHandler.Withdraw)
 	router.POST("/transfers", transferHandler.Create)
 
+	router.GET("/wallets", walletHandler.List)
 	router.GET("/wallets/:id", walletHandler.Get)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
+	router.GET("/wallets/:id/entries", ledgerHandler.GetWalletLedger)
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
+	router.GET("/wallets/:id/reconcile", ledgerHandler.ReconcileWallet)
+
+	// Embedded Frontend SPA
+	htmlContent, err := web.Dist.ReadFile("index.html")
+	if err != nil {
+		log.Fatalf("failed to read embedded index.html: %v", err)
+	}
+
+	router.GET("/", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", htmlContent)
+	})
 
 	addr := cfg.Port
 	if !strings.HasPrefix(addr, ":") {

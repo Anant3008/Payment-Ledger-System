@@ -33,3 +33,10 @@ func (r *LedgerRepository) ListByTransaction(ctx context.Context, txID int) ([]m
     err := r.db.SelectContext(ctx, &out, "SELECT id, transaction_id, wallet_id, amount, created_at FROM ledger_entries WHERE transaction_id=$1 ORDER BY id", txID)
     return out, err
 }
+
+func (r *LedgerRepository) ReconcileWallet(ctx context.Context, walletID int) (int64, int, error) {
+    var sum int64
+    var count int
+    err := r.db.QueryRowxContext(ctx, "SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM ledger_entries WHERE wallet_id=$1", walletID).Scan(&sum, &count)
+    return sum, count, err
+}
