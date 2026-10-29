@@ -2,10 +2,8 @@ package repository
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Anant3008/payment-ledger-system/internal/models"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -17,22 +15,35 @@ func NewIdempotencyRepository(db *sqlx.DB) *IdempotencyRepository {
 	return &IdempotencyRepository{db: db}
 }
 
-func (r *IdempotencyRepository) TryLock(ctx context.Context, key, path string) (bool, error) {
-	query := `INSERT INTO idempotency_keys (key, request_path, status) VALUES ($1, $2, 'started')`
-	_, err := r.db.ExecContext(ctx, query, key, path)
+func (r *IdempotencyRepository) TryLock(ctx context.Context, key, path, requestHash string) (bool, error) {
+	query := `
+		INSERT INTO idempotency_keys (key, request_path, request_hash, status, created_at)
+		VALUES ($1, $2, $3, 'started', now())
+		ON CONFLICT (key) DO UPDATE
+			SET request_path = EXCLUDED.request_path,
+			    request_hash = EXCLUDED.request_hash,
+			    status = 'started',
+			    response_code = NULL,
+			    response_body = NULL,
+			    created_at = now()
+		WHERE idempotency_keys.status = 'started'
+		  AND idempotency_keys.created_at < now() - INTERVAL '60 seconds'
+	`
+	res, err := r.db.ExecContext(ctx, query, key, path, requestHash)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" { // 23505 = unique_violation
-			return false, nil
-		}
 		return false, err
 	}
-	return true, nil
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows > 0, nil
 }
 
 func (r *IdempotencyRepository) Get(ctx context.Context, key string) (*models.IdempotencyRecord, error) {
 	var record models.IdempotencyRecord
-	err := r.db.GetContext(ctx, &record, "SELECT key, request_path, response_code, response_body, status, created_at FROM idempotency_keys WHERE key = $1", key)
+	query := `SELECT key, request_path, COALESCE(request_hash, '') as request_hash, response_code, response_body, status, created_at FROM idempotency_keys WHERE key = $1`
+	err := r.db.GetContext(ctx, &record, query, key)
 	if err != nil {
 		return nil, err
 	}

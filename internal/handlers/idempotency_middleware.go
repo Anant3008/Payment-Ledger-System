@@ -2,7 +2,11 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
@@ -35,7 +39,17 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 			return
 		}
 
-		locked, err := repo.TryLock(c.Request.Context(), key, c.Request.URL.Path)
+		// Buffer and calculate request hash for payload validation
+		var reqBody []byte
+		if c.Request.Body != nil {
+			reqBody, _ = io.ReadAll(c.Request.Body)
+			c.Request.Body = io.NopCloser(bytes.NewBuffer(reqBody))
+		}
+		hashInput := fmt.Sprintf("%s %s\n%s", c.Request.Method, c.Request.URL.Path, string(reqBody))
+		h := sha256.Sum256([]byte(hashInput))
+		reqHash := hex.EncodeToString(h[:])
+
+		locked, err := repo.TryLock(c.Request.Context(), key, c.Request.URL.Path, reqHash)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error processing idempotency"})
 			return
@@ -55,7 +69,15 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 			}
 
 			if record.Status == "completed" {
-				// It's completed, return the cached response
+				// Validate that request method, path, and payload match the original request
+				if record.RequestHash != "" && record.RequestHash != reqHash {
+					c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{
+						"error": "idempotency key reused with different request payload",
+					})
+					return
+				}
+
+				// It's completed and payload matches, return the cached response
 				code := http.StatusOK
 				if record.ResponseCode != nil {
 					code = *record.ResponseCode
