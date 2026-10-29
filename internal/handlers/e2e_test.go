@@ -16,9 +16,10 @@ import (
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
 	"github.com/gin-gonic/gin"
+	"github.com/jmoiron/sqlx"
 )
 
-func setupTestRouter(t *testing.T) *gin.Engine {
+func setupTestRouterWithDB(t *testing.T) (*gin.Engine, *sqlx.DB) {
 	t.Helper()
 	cfg := config.Load()
 
@@ -58,7 +59,12 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
 	router.POST("/transfers", transferHandler.Create)
 
-	return router
+	return router, conn
+}
+
+func setupTestRouter(t *testing.T) *gin.Engine {
+	r, _ := setupTestRouterWithDB(t)
+	return r
 }
 
 func TestE2E_FullPaymentLifecycle(t *testing.T) {
@@ -299,5 +305,60 @@ func TestE2E_Idempotency_FailedRequestReplay(t *testing.T) {
 
 	if err1["error"] != err2["error"] {
 		t.Fatalf("idempotency failed: parsed error bodies differ. first=%v, second=%v", err1, err2)
+	}
+}
+
+func TestE2E_Idempotency_PayloadMismatch_Fails(t *testing.T) {
+	router := setupTestRouter(t)
+	idempKey := fmt.Sprintf("idk-mismatch-%d", time.Now().UnixNano())
+
+	// 1. First Request: Create wallet with initial balance 100
+	payload1 := `{"owner": "OriginalUser", "initial_balance": 100}`
+	req1, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(payload1))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Idempotency-Key", idempKey)
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created on first request, got %d", w1.Code)
+	}
+
+	// 2. Second Request: Reuse SAME key with DIFFERENT payload
+	payload2 := `{"owner": "TamperedUser", "initial_balance": 99999}`
+	req2, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(payload2))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", idempKey)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("idempotency failed: expected 422 Unprocessable Entity on payload mismatch, got %d. Body: %s", w2.Code, w2.Body.String())
+	}
+}
+
+func TestE2E_Idempotency_StuckStartedKey_LeaseRecovery(t *testing.T) {
+	router, conn := setupTestRouterWithDB(t)
+	idempKey := fmt.Sprintf("idk-stuck-%d", time.Now().UnixNano())
+
+	// Simulate a server crash 70 seconds ago during request processing:
+	// Insert key in status 'started' with created_at = NOW() - INTERVAL '70 seconds'
+	_, err := conn.Exec(`INSERT INTO idempotency_keys (key, request_path, status, created_at) VALUES ($1, '/wallets', 'started', NOW() - INTERVAL '70 seconds')`, idempKey)
+	if err != nil {
+		t.Fatalf("failed to insert expired started key: %v", err)
+	}
+
+	// Now a new client retries the request
+	payload := `{"owner": "CrashRecoveryUser", "initial_balance": 200}`
+	req, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", idempKey)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	// Since lease has expired (>60s), the server should recover the lock and execute successfully (201 Created),
+	// NOT return 409 Conflict ("request already in progress")
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created after lease recovery, got %d. Body: %s", w.Code, w.Body.String())
 	}
 }
