@@ -493,3 +493,68 @@ func TestWalletRepository_CreateWithInitialBalance_ReconcilesLedger(t *testing.T
 		t.Fatalf("unexpected ledger entry: %+v", entries[0])
 	}
 }
+
+func TestTransferRepository_RecipientTransactionVisibility(t *testing.T) {
+	conn := setupTestDB(t)
+	defer conn.Close()
+
+	walletRepo := repository.NewWalletRepository(conn)
+	transferRepo := repository.NewTransferRepository(conn)
+	txRepo := repository.NewTransactionRepository(conn)
+	ctx := context.Background()
+
+	alice := &models.Wallet{Owner: fmt.Sprintf("AliceTx-%d", time.Now().UnixNano()), Balance: 1000}
+	bob := &models.Wallet{Owner: fmt.Sprintf("BobTx-%d", time.Now().UnixNano()), Balance: 500}
+
+	if err := walletRepo.Create(ctx, alice); err != nil {
+		t.Fatalf("failed to create Alice: %v", err)
+	}
+	if err := walletRepo.Create(ctx, bob); err != nil {
+		t.Fatalf("failed to create Bob: %v", err)
+	}
+
+	// Transfer 300 from Alice to Bob
+	if err := transferRepo.ExecuteTransfer(ctx, alice.ID, bob.ID, 300); err != nil {
+		t.Fatalf("transfer failed: %v", err)
+	}
+
+	// Bob must see the incoming transfer in his transaction list!
+	bobTxs, err := txRepo.ListByWallet(ctx, bob.ID, 10, 0)
+	if err != nil {
+		t.Fatalf("failed to list Bob's transactions: %v", err)
+	}
+
+	foundIncoming := false
+	for _, tx := range bobTxs {
+		if tx.Type == "transfer" && tx.Amount == 300 {
+			foundIncoming = true
+			if tx.ToWalletID == nil || *tx.ToWalletID != bob.ID {
+				t.Fatalf("expected to_wallet_id to be Bob (%d), got %v", bob.ID, tx.ToWalletID)
+			}
+			break
+		}
+	}
+
+	if !foundIncoming {
+		t.Fatalf("recipient Bob cannot see incoming transfer! transactions: %+v", bobTxs)
+	}
+}
+
+func TestWalletRepository_NegativeBalanceConstraint(t *testing.T) {
+	conn := setupTestDB(t)
+	defer conn.Close()
+
+	walletRepo := repository.NewWalletRepository(conn)
+	ctx := context.Background()
+
+	w := &models.Wallet{Owner: fmt.Sprintf("CheckConstraint-%d", time.Now().UnixNano()), Balance: 100}
+	if err := walletRepo.Create(ctx, w); err != nil {
+		t.Fatalf("failed to create wallet: %v", err)
+	}
+
+	// Attempt to force a negative balance via raw SQL update
+	_, err := conn.ExecContext(ctx, "UPDATE wallets SET balance = -500 WHERE id = $1", w.ID)
+	if err == nil {
+		t.Fatal("expected database CHECK constraint violation for negative balance, but update succeeded!")
+	}
+}

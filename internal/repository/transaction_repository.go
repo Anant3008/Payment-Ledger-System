@@ -12,13 +12,13 @@ type TransactionRepository struct{ db *sqlx.DB }
 func NewTransactionRepository(db *sqlx.DB) *TransactionRepository { return &TransactionRepository{db: db} }
 
 func (r *TransactionRepository) Create(ctx context.Context, t *models.Transaction) error {
-    query := `INSERT INTO transactions (wallet_id, amount, type, status) VALUES ($1, $2, $3, $4) RETURNING id, created_at`
-    return r.db.QueryRowxContext(ctx, query, t.WalletID, t.Amount, t.Type, t.Status).Scan(&t.ID, &t.CreatedAt)
+    query := `INSERT INTO transactions (wallet_id, to_wallet_id, amount, type, status) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`
+    return r.db.QueryRowxContext(ctx, query, t.WalletID, t.ToWalletID, t.Amount, t.Type, t.Status).Scan(&t.ID, &t.CreatedAt)
 }
 
 func (r *TransactionRepository) GetByID(ctx context.Context, id int) (*models.Transaction, error) {
     var t models.Transaction
-    if err := r.db.GetContext(ctx, &t, "SELECT id, wallet_id, amount, type, status, created_at FROM transactions WHERE id=$1", id); err != nil {
+    if err := r.db.GetContext(ctx, &t, "SELECT id, wallet_id, to_wallet_id, amount, type, status, created_at FROM transactions WHERE id=$1", id); err != nil {
         return nil, err
     }
     return &t, nil
@@ -32,7 +32,7 @@ func (r *TransactionRepository) ListByWallet(ctx context.Context, walletID int, 
         offset = 0
     }
     out := []models.Transaction{}
-    err := r.db.SelectContext(ctx, &out, "SELECT id, wallet_id, amount, type, status, created_at FROM transactions WHERE wallet_id=$1 ORDER BY id DESC LIMIT $2 OFFSET $3", walletID, limit, offset)
+    err := r.db.SelectContext(ctx, &out, "SELECT id, wallet_id, to_wallet_id, amount, type, status, created_at FROM transactions WHERE wallet_id=$1 OR to_wallet_id=$1 ORDER BY id DESC LIMIT $2 OFFSET $3", walletID, limit, offset)
     return out, err
 }
 
