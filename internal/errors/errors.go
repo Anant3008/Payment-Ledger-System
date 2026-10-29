@@ -9,4 +9,5 @@ var (
 	ErrInsufficientFunds = errors.New("insufficient funds for transfer")
 	ErrConflict          = errors.New("resource conflict")
 	ErrInternal          = errors.New("internal server error")
+	ErrQueueFull         = errors.New("system under heavy load, queue full")
 )
