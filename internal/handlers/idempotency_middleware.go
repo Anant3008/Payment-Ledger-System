@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 	"github.com/gin-gonic/gin"
@@ -22,6 +24,11 @@ type responseBodyWriter struct {
 func (w responseBodyWriter) Write(b []byte) (int, error) {
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
+}
+
+func (w responseBodyWriter) WriteString(s string) (int, error) {
+	w.body.WriteString(s)
+	return w.ResponseWriter.WriteString(s)
 }
 
 // IdempotencyMiddleware ensures POST mutating requests process exactly once.
@@ -98,11 +105,15 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 
 		c.Next()
 
-		// Save the response after processing completes
+		// Save or clear response in database using a detached context with 5s timeout
+		// so client network dropouts don't cancel database state persistence.
+		dbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		status := c.Writer.Status()
 		if status >= http.StatusInternalServerError {
 			// Do not cache transient server errors; release key so client can retry
-			_ = repo.Delete(c.Request.Context(), key)
+			_ = repo.Delete(dbCtx, key)
 			return
 		}
 
@@ -110,6 +121,6 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 		if len(bodyBytes) == 0 || !json.Valid(bodyBytes) {
 			bodyBytes = []byte("null")
 		}
-		_ = repo.Update(c.Request.Context(), key, status, bodyBytes)
+		_ = repo.Update(dbCtx, key, status, bodyBytes)
 	}
 }

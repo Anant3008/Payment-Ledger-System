@@ -179,6 +179,25 @@ func TestE2E_FullPaymentLifecycle(t *testing.T) {
 		t.Fatalf("unexpected Alice ledger entries: %+v", ledgerResp.Entries)
 	}
 
+	// 7b. Verify Bob's transactions via GET /wallets/:id/transactions (should have transfer from Alice and initial deposit)
+	req, _ = http.NewRequest(http.MethodGet, fmt.Sprintf("/wallets/%d/transactions?limit=10&offset=0", bob.ID), nil)
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("failed to get Bob transactions: code %d", w.Code)
+	}
+	var bobTxResp struct {
+		WalletID     int                  `json:"wallet_id"`
+		Transactions []models.Transaction `json:"transactions"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &bobTxResp)
+	if len(bobTxResp.Transactions) != 2 {
+		t.Fatalf("expected 2 transactions for Bob, got %d", len(bobTxResp.Transactions))
+	}
+	if bobTxResp.Transactions[0].Type != "transfer" || bobTxResp.Transactions[0].Amount != 1000 {
+		t.Fatalf("unexpected incoming transfer for Bob: %+v", bobTxResp.Transactions[0])
+	}
+
 	// 8. Overdraft withdrawal test: Alice tries to withdraw 5000 when balance is 1500 -> 400 Bad Request
 	excessWithdrawPayload := `{"amount": 5000}`
 	req, _ = http.NewRequest(http.MethodPost, fmt.Sprintf("/wallets/%d/withdraw", alice.ID), bytes.NewBufferString(excessWithdrawPayload))
