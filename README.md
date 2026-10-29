@@ -17,9 +17,10 @@ Under extreme contention (500 virtual users targeting the exact same sender wall
 | :--- | :---: | :---: | :---: | :---: | :--- |
 | **Baseline (Standard Multi-Query)** | 232 r/s | 1,883 ms | 5,670 ms | 9 | Network roundtrips holding row lock |
 | **Strategy 1 (Atomic Engine Stored Procedure)** | 657 r/s | 660 ms | 2,034 ms | 9 | Eliminated 6 of 7 network roundtrips |
-| **Strategy 2 (In-Memory Micro-Batching / Group Commits)** | **1,530 r/s** | **322 ms** | **400 ms** | **0** | **Bypassed single-row disk fsync serialization** |
+| **Strategy 2 (Micro-Batching - Sustained 3x 25s Average)** | **961 r/s** | **500 ms** | **793 ms** | **0** | **Bypassed single-row disk fsync serialization** |
+| **Strategy 2 (Micro-Batching - Peak 10s Burst Capacity)** | **1,530 r/s** | **322 ms** | **400 ms** | **0** | **Max amortized throughput before WAL saturation** |
 
-> *All benchmarks are reproducible using the automated testing suite under `benchmarks/` with multi-trial statistical averaging across concurrency levels (10 to 500 VUs).*
+> *All benchmarks are reproducible using the automated testing suite under `benchmarks/` with multi-trial statistical averaging across concurrency levels (10 to 500 VUs). Sustained metrics reflect the 3-trial calculated average over 25-second continuous load.*
 
 ---
 
