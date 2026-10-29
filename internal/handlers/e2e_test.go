@@ -47,18 +47,16 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 
 	router := gin.New()
 	router.Use(handlers.RequestIDMiddleware())
+	router.Use(handlers.IdempotencyMiddleware(idempRepo))
 	router.Use(handlers.ErrorMiddleware())
 
-	mutating := router.Group("/")
-	mutating.Use(handlers.IdempotencyMiddleware(idempRepo))
-
-	mutating.POST("/wallets", walletHandler.Create)
+	router.POST("/wallets", walletHandler.Create)
 	router.GET("/wallets/:id", walletHandler.Get)
-	mutating.POST("/wallets/:id/deposit", walletHandler.Deposit)
-	mutating.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
+	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
-	mutating.POST("/transfers", transferHandler.Create)
+	router.POST("/transfers", transferHandler.Create)
 
 	return router
 }
@@ -247,5 +245,59 @@ func TestE2E_Idempotency(t *testing.T) {
 
 	if b1["id"] != b2["id"] || b1["balance"] != b2["balance"] {
 		t.Fatalf("Idempotency failed: parsed bodies differ. b1=%v, b2=%v", b1, b2)
+	}
+}
+
+func TestE2E_Idempotency_FailedRequestReplay(t *testing.T) {
+	router := setupTestRouter(t)
+
+	// 1. Create a wallet with initial balance 100
+	createPayload := `{"owner": "OverdraftUser", "initial_balance": 100}`
+	reqCreate, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(createPayload))
+	reqCreate.Header.Set("Content-Type", "application/json")
+	reqCreate.Header.Set("Idempotency-Key", fmt.Sprintf("idk-create-%d", time.Now().UnixNano()))
+	wCreate := httptest.NewRecorder()
+	router.ServeHTTP(wCreate, reqCreate)
+	if wCreate.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d", wCreate.Code)
+	}
+
+	var createdWallet models.Wallet
+	if err := json.Unmarshal(wCreate.Body.Bytes(), &createdWallet); err != nil {
+		t.Fatalf("failed to parse created wallet: %v", err)
+	}
+
+	// 2. First attempt: Withdraw 500 (Overdraft -> 400 Bad Request)
+	idempKey := fmt.Sprintf("idk-fail-%d", time.Now().UnixNano())
+	withdrawPayload := `{"amount": 500}`
+	path := fmt.Sprintf("/wallets/%d/withdraw", createdWallet.ID)
+
+	req1, _ := http.NewRequest(http.MethodPost, path, bytes.NewBufferString(withdrawPayload))
+	req1.Header.Set("Content-Type", "application/json")
+	req1.Header.Set("Idempotency-Key", idempKey)
+	w1 := httptest.NewRecorder()
+	router.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request on overdraft, got %d. Body: %s", w1.Code, w1.Body.String())
+	}
+
+	// 3. Second attempt: Replay the exact same request with the exact same Idempotency-Key
+	req2, _ := http.NewRequest(http.MethodPost, path, bytes.NewBufferString(withdrawPayload))
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Idempotency-Key", idempKey)
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("idempotency failed: expected replayed status %d (400 Bad Request), got %d. Body: %s", http.StatusBadRequest, w2.Code, w2.Body.String())
+	}
+
+	var err1, err2 map[string]interface{}
+	json.Unmarshal(w1.Body.Bytes(), &err1)
+	json.Unmarshal(w2.Body.Bytes(), &err2)
+
+	if err1["error"] != err2["error"] {
+		t.Fatalf("idempotency failed: parsed error bodies differ. first=%v, second=%v", err1, err2)
 	}
 }

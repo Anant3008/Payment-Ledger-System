@@ -56,11 +56,16 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 
 			if record.Status == "completed" {
 				// It's completed, return the cached response
-				var bodyMap interface{}
-				if len(record.ResponseBody) > 0 {
-					_ = json.Unmarshal(record.ResponseBody, &bodyMap)
+				code := http.StatusOK
+				if record.ResponseCode != nil {
+					code = *record.ResponseCode
 				}
-				c.AbortWithStatusJSON(*record.ResponseCode, bodyMap)
+				body := record.ResponseBody
+				if len(body) == 0 {
+					body = []byte("null")
+				}
+				c.Data(code, "application/json; charset=utf-8", body)
+				c.Abort()
 				return
 			}
 		}
@@ -72,6 +77,17 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 		c.Next()
 
 		// Save the response after processing completes
-		_ = repo.Update(c.Request.Context(), key, c.Writer.Status(), bw.body.Bytes())
+		status := c.Writer.Status()
+		if status >= http.StatusInternalServerError {
+			// Do not cache transient server errors; release key so client can retry
+			_ = repo.Delete(c.Request.Context(), key)
+			return
+		}
+
+		bodyBytes := bw.body.Bytes()
+		if len(bodyBytes) == 0 || !json.Valid(bodyBytes) {
+			bodyBytes = []byte("null")
+		}
+		_ = repo.Update(c.Request.Context(), key, status, bodyBytes)
 	}
 }

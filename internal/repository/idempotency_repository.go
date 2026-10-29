@@ -40,8 +40,17 @@ func (r *IdempotencyRepository) Get(ctx context.Context, key string) (*models.Id
 }
 
 func (r *IdempotencyRepository) Update(ctx context.Context, key string, code int, body []byte) error {
+	if len(body) == 0 {
+		body = []byte("null")
+	}
 	query := `UPDATE idempotency_keys SET status = 'completed', response_code = $1, response_body = $2 WHERE key = $3`
 	_, err := r.db.ExecContext(ctx, query, code, body, key)
+	return err
+}
+
+func (r *IdempotencyRepository) Delete(ctx context.Context, key string) error {
+	query := `DELETE FROM idempotency_keys WHERE key = $1`
+	_, err := r.db.ExecContext(ctx, query, key)
 	return err
 }
 
