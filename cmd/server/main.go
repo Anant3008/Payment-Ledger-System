@@ -50,6 +50,7 @@ func main() {
 
 	router := gin.Default()
 	router.Use(handlers.RequestIDMiddleware())
+	router.Use(handlers.IdempotencyMiddleware(idempRepo))
 	router.Use(handlers.ErrorMiddleware())
 
 	// Health check
@@ -62,13 +63,10 @@ func main() {
 	})
 
 	// Routes
-	mutating := router.Group("/")
-	mutating.Use(handlers.IdempotencyMiddleware(idempRepo))
-
-	mutating.POST("/wallets", walletHandler.Create)
-	mutating.POST("/wallets/:id/deposit", walletHandler.Deposit)
-	mutating.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
-	mutating.POST("/transfers", transferHandler.Create)
+	router.POST("/wallets", walletHandler.Create)
+	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
+	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	router.POST("/transfers", transferHandler.Create)
 
 	router.GET("/wallets/:id", walletHandler.Get)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
