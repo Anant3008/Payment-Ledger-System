@@ -20,9 +20,16 @@ type TransferService struct {
 }
 
 func NewTransferService(transferRepo *repository.TransferRepository) *TransferService {
+	return NewTransferServiceWithCapacity(transferRepo, 5000)
+}
+
+func NewTransferServiceWithCapacity(transferRepo *repository.TransferRepository, capacity int) *TransferService {
+	if capacity <= 0 {
+		capacity = 5000
+	}
 	s := &TransferService{
 		transferRepo: transferRepo,
-		jobQueue:     make(chan *models.TransferJob, 5000), // Buffer size large enough for traffic spikes
+		jobQueue:     make(chan *models.TransferJob, capacity),
 		stopChan:     make(chan struct{}),
 	}
 	return s
@@ -97,11 +104,26 @@ func (s *TransferService) Stop() {
 // to filter out the poisoned transfers (e.g. overdrafts), allowing innocent
 // transfers to succeed.
 func (s *TransferService) executeBatch(batch []*models.TransferJob) {
-	fromIDs := make([]int, len(batch))
-	toIDs := make([]int, len(batch))
-	amounts := make([]int64, len(batch))
+	// Filter out jobs whose client contexts have already been cancelled/timed out
+	validJobs := make([]*models.TransferJob, 0, len(batch))
+	for _, job := range batch {
+		if err := job.Ctx.Err(); err != nil {
+			// Client already gave up; notify channel and do NOT execute transfer in DB
+			job.ResultChan <- err
+			continue
+		}
+		validJobs = append(validJobs, job)
+	}
 
-	for i, job := range batch {
+	if len(validJobs) == 0 {
+		return
+	}
+
+	fromIDs := make([]int, len(validJobs))
+	toIDs := make([]int, len(validJobs))
+	amounts := make([]int64, len(validJobs))
+
+	for i, job := range validJobs {
 		fromIDs[i] = job.FromWalletID
 		toIDs[i] = job.ToWalletID
 		amounts[i] = job.Amount
@@ -110,7 +132,7 @@ func (s *TransferService) executeBatch(batch []*models.TransferJob) {
 	err := s.transferRepo.ExecuteBatch(context.Background(), fromIDs, toIDs, amounts)
 	if err == nil {
 		// Fast path: the entire batch succeeded!
-		for _, job := range batch {
+		for _, job := range validJobs {
 			job.ResultChan <- nil
 		}
 		return
@@ -119,9 +141,13 @@ func (s *TransferService) executeBatch(batch []*models.TransferJob) {
 	// Slow path: the batch failed (likely due to one invalid transfer like an overdraft).
 	// We must fall back to processing each job individually so innocent transactions
 	// do not fail because of someone else's overdraft.
-	slog.Warn("batch failed, falling back to sequential execution", "batch_size", len(batch), "error", err)
+	slog.Warn("batch failed, falling back to sequential execution", "batch_size", len(validJobs), "error", err)
 
-	for _, job := range batch {
+	for _, job := range validJobs {
+		if err := job.Ctx.Err(); err != nil {
+			job.ResultChan <- err
+			continue
+		}
 		// Execute sequentially using the existing array layer with length 1
 		singleErr := s.transferRepo.ExecuteTransfer(context.Background(), job.FromWalletID, job.ToWalletID, job.Amount)
 		job.ResultChan <- singleErr
@@ -146,11 +172,11 @@ func (s *TransferService) ProcessTransfer(ctx context.Context, fromWalletID, toW
 		ResultChan:   make(chan error, 1),
 	}
 
-	// Drop intent into the queue
+	// Drop intent into the queue with non-blocking backpressure
 	select {
 	case s.jobQueue <- job:
-	case <-ctx.Done():
-		return ctx.Err()
+	default:
+		return fmt.Errorf("transfer queue full: %w", apperrors.ErrQueueFull)
 	}
 
 	// Wait for the background worker to finish the batch and reply

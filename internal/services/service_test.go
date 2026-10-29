@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
@@ -123,5 +124,79 @@ func TestWalletAndTransferService_Integration(t *testing.T) {
 	}
 	if bobFinal.Balance != 2500 {
 		t.Fatalf("expected Bob balance 2500, got %d", bobFinal.Balance)
+	}
+}
+
+func TestTransferService_ClientCancelledBeforeBatch_DoesNotMutateBalance(t *testing.T) {
+	conn := setupServicesTestDB(t)
+	defer conn.Close()
+
+	walletRepo := repository.NewWalletRepository(conn)
+	transferRepo := repository.NewTransferRepository(conn)
+
+	walletService := services.NewWalletService(walletRepo)
+	transferService := services.NewTransferService(transferRepo)
+
+	ctx := context.Background()
+	alice, err := walletService.CreateWallet(ctx, "CancelAlice", 2000)
+	if err != nil {
+		t.Fatalf("failed to create Alice: %v", err)
+	}
+	bob, err := walletService.CreateWallet(ctx, "CancelBob", 500)
+	if err != nil {
+		t.Fatalf("failed to create Bob: %v", err)
+	}
+
+	// Do NOT start worker yet. Job enters queue while worker is idle.
+	cancelCtx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan error, 1)
+	go func() {
+		done <- transferService.ProcessTransfer(cancelCtx, alice.ID, bob.ID, 300)
+	}()
+
+	// Give it a moment to land in queue
+	time.Sleep(10 * time.Millisecond)
+
+	// Now client context cancels (timeout/disconnect)
+	cancel()
+
+	// ProcessTransfer returns context.Canceled
+	err = <-done
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+
+	// Now start the batch worker to process what was in the queue
+	transferService.StartBatchWorker()
+	time.Sleep(50 * time.Millisecond)
+	transferService.Stop()
+
+	// Alice's balance must still be 2000, Bob's must still be 500!
+	aliceCheck, err := walletService.GetWallet(ctx, alice.ID)
+	if err != nil || aliceCheck.Balance != 2000 {
+		t.Fatalf("phantom transfer occurred! expected Alice balance 2000, got %v", aliceCheck.Balance)
+	}
+	bobCheck, err := walletService.GetWallet(ctx, bob.ID)
+	if err != nil || bobCheck.Balance != 500 {
+		t.Fatalf("phantom transfer occurred! expected Bob balance 500, got %v", bobCheck.Balance)
+	}
+}
+
+func TestTransferService_QueueBackpressure(t *testing.T) {
+	// Service with tiny queue capacity of 2 items
+	transferService := services.NewTransferServiceWithCapacity(nil, 2)
+
+	// Fill the queue
+	ctx := context.Background()
+	go transferService.ProcessTransfer(ctx, 1, 2, 100)
+	go transferService.ProcessTransfer(ctx, 1, 2, 200)
+
+	time.Sleep(10 * time.Millisecond)
+
+	// Third transfer should fail immediately with ErrQueueFull instead of blocking
+	err := transferService.ProcessTransfer(ctx, 1, 2, 300)
+	if !errors.Is(err, apperrors.ErrQueueFull) {
+		t.Fatalf("expected ErrQueueFull on saturated queue, got %v", err)
 	}
 }

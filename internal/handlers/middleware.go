@@ -41,6 +41,9 @@ func ErrorMiddleware() gin.HandlerFunc {
 		case errors.Is(err, apperrors.ErrConflict):
 			status = http.StatusConflict
 			safeMsg = "resource conflict"
+		case errors.Is(err, apperrors.ErrQueueFull):
+			status = http.StatusServiceUnavailable
+			safeMsg = "system is currently at capacity, please retry"
 		default:
 			// Unhandled errors become 500 Internal Server Errors
 			status = http.StatusInternalServerError
