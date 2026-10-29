@@ -69,3 +69,21 @@ func (h *LedgerHandler) GetWalletTransactions(c *gin.Context) {
 		"transactions": transactions,
 	})
 }
+
+// ReconcileWallet handles wallet reconciliation verification.
+func (h *LedgerHandler) ReconcileWallet(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.Error(fmt.Errorf("invalid id format: %w", apperrors.ErrInvalidInput))
+		return
+	}
+
+	result, err := h.service.ReconcileWallet(c.Request.Context(), id)
+	if err != nil {
+		c.Error(err)
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}

@@ -42,6 +42,9 @@ CLAUDE.md
 
 # Repomix & Tools
 repomix-output.xml
+node_modules/
+package-lock.json
+web/bundle.js
 
 # Benchmark generated data
 benchmarks/data/wallets.json

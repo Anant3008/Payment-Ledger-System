@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/Anant3008/payment-ledger-system/internal/models"
 	"github.com/Anant3008/payment-ledger-system/internal/repository"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
+	"github.com/Anant3008/payment-ledger-system/web"
 	"github.com/gin-gonic/gin"
 	"github.com/jmoiron/sqlx"
 )
@@ -52,12 +54,22 @@ func setupTestRouterWithDB(t *testing.T) (*gin.Engine, *sqlx.DB) {
 	router.Use(handlers.ErrorMiddleware())
 
 	router.POST("/wallets", walletHandler.Create)
+	router.GET("/wallets", walletHandler.List)
 	router.GET("/wallets/:id", walletHandler.Get)
 	router.POST("/wallets/:id/deposit", walletHandler.Deposit)
 	router.POST("/wallets/:id/withdraw", walletHandler.Withdraw)
+	router.POST("/deposits", walletHandler.Deposit)
+	router.POST("/withdrawals", walletHandler.Withdraw)
 	router.GET("/wallets/:id/ledger", ledgerHandler.GetWalletLedger)
+	router.GET("/wallets/:id/entries", ledgerHandler.GetWalletLedger)
 	router.GET("/wallets/:id/transactions", ledgerHandler.GetWalletTransactions)
+	router.GET("/wallets/:id/reconcile", ledgerHandler.ReconcileWallet)
 	router.POST("/transfers", transferHandler.Create)
+
+	htmlContent, _ := web.Dist.ReadFile("index.html")
+	router.GET("/", func(c *gin.Context) {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", htmlContent)
+	})
 
 	return router, conn
 }
@@ -379,5 +391,101 @@ func TestE2E_Idempotency_StuckStartedKey_LeaseRecovery(t *testing.T) {
 	// NOT return 409 Conflict ("request already in progress")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201 Created after lease recovery, got %d. Body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestE2E_EmbeddedFrontendAndEndpoints(t *testing.T) {
+	router := setupTestRouter(t)
+
+	// 1. GET / returns embedded index.html
+	reqHome, _ := http.NewRequest(http.MethodGet, "/", nil)
+	wHome := httptest.NewRecorder()
+	router.ServeHTTP(wHome, reqHome)
+	if wHome.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /, got %d", wHome.Code)
+	}
+	if !strings.Contains(wHome.Body.String(), "<!DOCTYPE html>") {
+		t.Fatal("expected HTML document in response for GET /")
+	}
+
+	// 2. GET /wallets returns { "data": [...] }
+	reqWallets, _ := http.NewRequest(http.MethodGet, "/wallets", nil)
+	wWallets := httptest.NewRecorder()
+	router.ServeHTTP(wWallets, reqWallets)
+	if wWallets.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /wallets, got %d", wWallets.Code)
+	}
+	var walletListResp struct {
+		Data []models.Wallet `json:"data"`
+	}
+	if err := json.Unmarshal(wWallets.Body.Bytes(), &walletListResp); err != nil {
+		t.Fatalf("failed to parse wallet list: %v", err)
+	}
+
+	// 3. Create wallet, test /deposits alias and /reconcile endpoint
+	createPayload := `{"owner": "UITestUser", "initial_balance": 500}`
+	reqCreate, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(createPayload))
+	reqCreate.Header.Set("Content-Type", "application/json")
+	reqCreate.Header.Set("Idempotency-Key", fmt.Sprintf("ui-test-create-%d", time.Now().UnixNano()))
+	wCreate := httptest.NewRecorder()
+	router.ServeHTTP(wCreate, reqCreate)
+	var newWallet models.Wallet
+	json.Unmarshal(wCreate.Body.Bytes(), &newWallet)
+
+	// Top-level /deposits alias with wallet_id in body
+	depositPayload := fmt.Sprintf(`{"wallet_id": %d, "amount": 250}`, newWallet.ID)
+	reqDeposit, _ := http.NewRequest(http.MethodPost, "/deposits", bytes.NewBufferString(depositPayload))
+	reqDeposit.Header.Set("Content-Type", "application/json")
+	reqDeposit.Header.Set("Idempotency-Key", fmt.Sprintf("ui-test-deposit-%d", time.Now().UnixNano()))
+	wDeposit := httptest.NewRecorder()
+	router.ServeHTTP(wDeposit, reqDeposit)
+	if wDeposit.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for POST /deposits, got %d. Body: %s", wDeposit.Code, wDeposit.Body.String())
+	}
+
+	// GET /wallets/:id/reconcile
+	reqReconcile, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/wallets/%d/reconcile", newWallet.ID), nil)
+	wReconcile := httptest.NewRecorder()
+	router.ServeHTTP(wReconcile, reqReconcile)
+	if wReconcile.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for GET /wallets/:id/reconcile, got %d", wReconcile.Code)
+	}
+	var reconcileResp struct {
+		Balanced bool `json:"balanced"`
+	}
+	json.Unmarshal(wReconcile.Body.Bytes(), &reconcileResp)
+	if !reconcileResp.Balanced {
+		t.Fatal("expected wallet to be reconciled after initial balance + deposit")
+	}
+
+	// 4. Test string IDs in JSON body (e.g. from browser form dropdowns):
+	// Withdraw with string wallet_id
+	withdrawPayload := fmt.Sprintf(`{"wallet_id": "%d", "amount": 100}`, newWallet.ID)
+	reqWithdraw, _ := http.NewRequest(http.MethodPost, "/withdrawals", bytes.NewBufferString(withdrawPayload))
+	reqWithdraw.Header.Set("Content-Type", "application/json")
+	reqWithdraw.Header.Set("Idempotency-Key", fmt.Sprintf("ui-test-withdraw-%d", time.Now().UnixNano()))
+	wWithdraw := httptest.NewRecorder()
+	router.ServeHTTP(wWithdraw, reqWithdraw)
+	if wWithdraw.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for POST /withdrawals with string wallet_id, got %d. Body: %s", wWithdraw.Code, wWithdraw.Body.String())
+	}
+
+	// Create second wallet and test /transfers with string IDs
+	reqCreate2, _ := http.NewRequest(http.MethodPost, "/wallets", bytes.NewBufferString(`{"owner": "UITestUser2", "initial_balance": 100}`))
+	reqCreate2.Header.Set("Content-Type", "application/json")
+	reqCreate2.Header.Set("Idempotency-Key", fmt.Sprintf("ui-test-create2-%d", time.Now().UnixNano()))
+	wCreate2 := httptest.NewRecorder()
+	router.ServeHTTP(wCreate2, reqCreate2)
+	var wallet2 models.Wallet
+	json.Unmarshal(wCreate2.Body.Bytes(), &wallet2)
+
+	transferPayload := fmt.Sprintf(`{"from_wallet_id": "%d", "to_wallet_id": "%d", "amount": 50}`, newWallet.ID, wallet2.ID)
+	reqTransfer, _ := http.NewRequest(http.MethodPost, "/transfers", bytes.NewBufferString(transferPayload))
+	reqTransfer.Header.Set("Content-Type", "application/json")
+	reqTransfer.Header.Set("Idempotency-Key", fmt.Sprintf("ui-test-transfer-%d", time.Now().UnixNano()))
+	wTransfer := httptest.NewRecorder()
+	router.ServeHTTP(wTransfer, reqTransfer)
+	if wTransfer.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for POST /transfers with string IDs, got %d. Body: %s", wTransfer.Code, wTransfer.Body.String())
 	}
 }

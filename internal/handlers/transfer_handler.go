@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
+	"github.com/Anant3008/payment-ledger-system/internal/models"
 	"github.com/Anant3008/payment-ledger-system/internal/services"
 	"github.com/gin-gonic/gin"
 )
@@ -18,9 +19,9 @@ func NewTransferHandler(service *services.TransferService) *TransferHandler {
 }
 
 type transferReq struct {
-	FromWalletID int   `json:"from_wallet_id" binding:"required"`
-	ToWalletID   int   `json:"to_wallet_id" binding:"required"`
-	Amount       int64 `json:"amount" binding:"required,gt=0"`
+	FromWalletID models.FlexibleID `json:"from_wallet_id" binding:"required"`
+	ToWalletID   models.FlexibleID `json:"to_wallet_id" binding:"required"`
+	Amount       int64             `json:"amount" binding:"required,gt=0"`
 }
 
 func (h *TransferHandler) Create(c *gin.Context) {
@@ -30,7 +31,7 @@ func (h *TransferHandler) Create(c *gin.Context) {
 		return
 	}
 
-	err := h.service.ProcessTransfer(c.Request.Context(), req.FromWalletID, req.ToWalletID, req.Amount)
+	err := h.service.ProcessTransfer(c.Request.Context(), req.FromWalletID.Int(), req.ToWalletID.Int(), req.Amount)
 	if err != nil {
 		c.Error(err)
 		return

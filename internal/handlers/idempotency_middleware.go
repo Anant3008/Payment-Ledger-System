@@ -93,6 +93,7 @@ func IdempotencyMiddleware(repo *repository.IdempotencyRepository) gin.HandlerFu
 				if len(body) == 0 {
 					body = []byte("null")
 				}
+				c.Header("Idempotent-Replayed", "true")
 				c.Data(code, "application/json; charset=utf-8", body)
 				c.Abort()
 				return
