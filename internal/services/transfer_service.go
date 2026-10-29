@@ -64,10 +64,21 @@ func (s *TransferService) StartBatchWorker() {
 		for {
 			select {
 			case <-s.stopChan:
-				// Flush any remaining jobs before shutting down
-				flush()
-				slog.Info("Transfer micro-batching worker stopped")
-				return
+				// Drain all remaining jobs in jobQueue before shutting down
+				for {
+					select {
+					case job := <-s.jobQueue:
+						batch = append(batch, job)
+						if len(batch) >= batchSize {
+							flush()
+						}
+					default:
+						// Queue completely drained
+						flush()
+						slog.Info("Transfer micro-batching worker stopped")
+						return
+					}
+				}
 
 			case job := <-s.jobQueue:
 				if len(batch) == 0 {

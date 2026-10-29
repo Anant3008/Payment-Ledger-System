@@ -78,8 +78,12 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: router,
+		Addr:              addr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	// Initializing the server in a goroutine so that it won't block
@@ -96,15 +100,15 @@ func main() {
 	<-quit
 	log.Println("Shutting down server...")
 
-	// Stop batching worker to flush remaining transfers
-	transferService.Stop()
-
-	// The context is used to inform the server it has 5 seconds to finish
+	// 1. First: Stop accepting new HTTP requests and drain active handlers
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatal("Server forced to shutdown: ", err)
+		log.Printf("Server forced to shutdown: %v", err)
 	}
+
+	// 2. Second: Stop batching worker to drain and commit any remaining queued transfers to DB
+	transferService.Stop()
 
 	log.Println("Server exiting")
 }

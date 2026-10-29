@@ -3,6 +3,7 @@ package services_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,5 +199,82 @@ func TestTransferService_QueueBackpressure(t *testing.T) {
 	err := transferService.ProcessTransfer(ctx, 1, 2, 300)
 	if !errors.Is(err, apperrors.ErrQueueFull) {
 		t.Fatalf("expected ErrQueueFull on saturated queue, got %v", err)
+	}
+}
+
+func TestTransferService_Stop_DrainsEntireQueue(t *testing.T) {
+	conn := setupServicesTestDB(t)
+	defer conn.Close()
+
+	walletRepo := repository.NewWalletRepository(conn)
+	transferRepo := repository.NewTransferRepository(conn)
+
+	walletService := services.NewWalletService(walletRepo)
+	transferService := services.NewTransferService(transferRepo)
+
+	ctx := context.Background()
+	alice, err := walletService.CreateWallet(ctx, "DrainAlice", 5000)
+	if err != nil {
+		t.Fatalf("failed to create Alice: %v", err)
+	}
+	bob, err := walletService.CreateWallet(ctx, "DrainBob", 100)
+	if err != nil {
+		t.Fatalf("failed to create Bob: %v", err)
+	}
+
+	// Launch 70 concurrent transfers (more than 1 batch size of 50)
+	const numTransfers = 70
+	const transferAmount = int64(10)
+	var wg sync.WaitGroup
+	errs := make(chan error, numTransfers)
+
+	for i := 0; i < numTransfers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- transferService.ProcessTransfer(ctx, alice.ID, bob.ID, transferAmount)
+		}()
+	}
+
+	// Wait briefly for all jobs to be enqueued
+	time.Sleep(20 * time.Millisecond)
+
+	// Now start and immediately trigger Stop shutdown
+	transferService.StartBatchWorker()
+	transferService.Stop()
+
+	// Wait for all callers to return (with timeout guard)
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(1 * time.Second):
+		t.Fatal("shutdown hung! Queue items were abandoned in jobQueue")
+	}
+
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("transfer failed during shutdown: %v", err)
+		}
+	}
+
+	// Verify all 70 transfers were processed and committed!
+	// Alice: 5000 - (70 * 10) = 4300. Bob: 100 + 700 = 800.
+	aliceFinal, _ := walletService.GetWallet(ctx, alice.ID)
+	bobFinal, _ := walletService.GetWallet(ctx, bob.ID)
+
+	expectedAlice := int64(5000 - (numTransfers * transferAmount))
+	expectedBob := int64(100 + (numTransfers * transferAmount))
+
+	if aliceFinal.Balance != expectedAlice {
+		t.Fatalf("shutdown dropped transfers! expected Alice balance %d, got %d", expectedAlice, aliceFinal.Balance)
+	}
+	if bobFinal.Balance != expectedBob {
+		t.Fatalf("shutdown dropped transfers! expected Bob balance %d, got %d", expectedBob, bobFinal.Balance)
 	}
 }
