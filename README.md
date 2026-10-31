@@ -221,23 +221,6 @@ make test
 
 ---
 
-## 1-Click Cloud Deployment (Render Free Tier)
-
-This repository includes a native Infrastructure-as-Code Blueprint (`render.yaml`) tailored for Render's 100% Free Tier:
-
-1. Fork or push this repository to your GitHub account.
-2. Sign in to [dashboard.render.com](https://dashboard.render.com/).
-3. Click **New +** -> **Blueprint**.
-4. Select `Payment-Ledger-System`.
-5. Render automatically:
-   - Provisions a managed PostgreSQL 15 database (`payment-ledger-db`).
-   - Builds the multi-stage Docker container.
-   - Runs database migrations (`000001`–`000008`) and populates the 25 demo accounts via `entrypoint.sh`.
-   - Boots the web service (`payment-ledger-app`) with the embedded audit worker enabled (`RUN_AUDIT_WORKER=true`).
-6. Open your live app URL (e.g. `https://payment-ledger-app.onrender.com/`) to access the production console.
-
----
-
 ## Running Benchmarks & Diagnostics
 
 ### 1. Run Baseline Load Test
