@@ -168,6 +168,9 @@ func (s *TransferService) executeBatch(batch []*models.TransferJob) {
 // ProcessTransfer validates business rules and enqueues the transfer intent.
 // It blocks until the background worker processes the batch and returns an error.
 func (s *TransferService) ProcessTransfer(ctx context.Context, fromWalletID, toWalletID int, amount int64) error {
+	if fromWalletID <= 0 || toWalletID <= 0 {
+		return fmt.Errorf("wallet id must be greater than zero: %w", apperrors.ErrInvalidInput)
+	}
 	if amount <= 0 {
 		return fmt.Errorf("amount must be greater than zero: %w", apperrors.ErrInvalidInput)
 	}

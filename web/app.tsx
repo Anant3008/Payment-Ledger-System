@@ -472,15 +472,27 @@ async function request<T = any>(method: 'GET' | 'POST', path: string, body?: unk
       }))
     }
     if (Array.isArray(data.transactions)) {
-      data.data = data.transactions.map((tx: any) => ({
-        ...tx,
-        id: String(tx.id),
-        kind: tx.type || tx.kind || 'transfer',
-        from_wallet_id: tx.from_wallet_id != null ? String(tx.from_wallet_id) : (tx.wallet_id != null ? String(tx.wallet_id) : null),
-        to_wallet_id: tx.to_wallet_id != null ? String(tx.to_wallet_id) : null,
-        currency: tx.currency || 'USD',
-        idempotency_key: tx.idempotency_key ? String(tx.idempotency_key) : '',
-      }))
+      data.data = data.transactions.map((tx: any) => {
+        const kind = tx.type || tx.kind || 'transfer'
+        let fromWalletId = tx.from_wallet_id != null ? String(tx.from_wallet_id) : null
+        let toWalletId = tx.to_wallet_id != null ? String(tx.to_wallet_id) : null
+        if (kind === 'deposit') {
+          toWalletId = toWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+        } else if (kind === 'withdrawal') {
+          fromWalletId = fromWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+        } else if (kind === 'transfer') {
+          fromWalletId = fromWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+        }
+        return {
+          ...tx,
+          id: String(tx.id),
+          kind,
+          from_wallet_id: fromWalletId,
+          to_wallet_id: toWalletId,
+          currency: tx.currency || 'USD',
+          idempotency_key: tx.idempotency_key ? String(tx.idempotency_key) : '',
+        }
+      })
     }
   }
 
@@ -1834,15 +1846,27 @@ function Ledger() {
       amount: Math.abs(entry.amount),
     })))
 
-    setTxs(rawTxs.map((tx: any) => ({
-      ...tx,
-      id: String(tx.id),
-      kind: tx.type || tx.kind || 'transfer',
-      from_wallet_id: tx.from_wallet_id != null ? String(tx.from_wallet_id) : (tx.wallet_id != null ? String(tx.wallet_id) : null),
-      to_wallet_id: tx.to_wallet_id != null ? String(tx.to_wallet_id) : null,
-      currency: tx.currency || 'USD',
-      idempotency_key: tx.idempotency_key ? String(tx.idempotency_key) : '',
-    })))
+    setTxs(rawTxs.map((tx: any) => {
+      const kind = tx.type || tx.kind || 'transfer'
+      let fromWalletId = tx.from_wallet_id != null ? String(tx.from_wallet_id) : null
+      let toWalletId = tx.to_wallet_id != null ? String(tx.to_wallet_id) : null
+      if (kind === 'deposit') {
+        toWalletId = toWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+      } else if (kind === 'withdrawal') {
+        fromWalletId = fromWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+      } else if (kind === 'transfer') {
+        fromWalletId = fromWalletId || (tx.wallet_id != null ? String(tx.wallet_id) : null)
+      }
+      return {
+        ...tx,
+        id: String(tx.id),
+        kind,
+        from_wallet_id: fromWalletId,
+        to_wallet_id: toWalletId,
+        currency: tx.currency || 'USD',
+        idempotency_key: tx.idempotency_key ? String(tx.idempotency_key) : '',
+      }
+    }))
     setLoading(false)
   }, [selected?.id])
 
@@ -1860,8 +1884,8 @@ function Ledger() {
 
   const safeEntries = entries || []
   const safeTxs = txs || []
-  const credits = safeEntries.filter((e) => e.direction === 'credit' || e.amount > 0).reduce((s, e) => s + Math.abs(e.amount), 0)
-  const debits = safeEntries.filter((e) => e.direction === 'debit' || e.amount < 0).reduce((s, e) => s + Math.abs(e.amount), 0)
+  const credits = safeEntries.filter((e) => e.direction === 'credit').reduce((s, e) => s + Math.abs(e.amount), 0)
+  const debits = safeEntries.filter((e) => e.direction === 'debit').reduce((s, e) => s + Math.abs(e.amount), 0)
   const name = (id: string | null) => (id ? wallets.find((w) => String(w.id) === String(id))?.owner ?? shortId(id) : 'External')
 
   return (

@@ -27,9 +27,20 @@ __pycache__/
 /pgdata/
 docker-compose.override.yml
 
-# IDEs
+# IDEs & Editor
 .vscode/
-.idea/
+.idea
+.mcp.json
+
+# Local Environment & Sandbox Artifacts
+/.bash_profile
+/.bashrc
+/.gitconfig
+/.gitmodules
+/.profile
+/.ripgreprc
+/.zprofile
+/.zshrc
 
 # OS
 .DS_Store

@@ -64,22 +64,18 @@ func (s *LedgerService) GetWalletTransactions(ctx context.Context, walletID int,
 	return s.transactionRepo.ListByWallet(ctx, walletID, limit, offset)
 }
 
-// ReconcileWallet checks the mathematical consistency between the wallet balance and its ledger entries sum.
+// ReconcileWallet checks the mathematical consistency between the wallet balance and its ledger entries sum in an atomic MVCC snapshot.
 func (s *LedgerService) ReconcileWallet(ctx context.Context, walletID int) (map[string]interface{}, error) {
-	w, err := s.walletRepo.GetByID(ctx, walletID)
-	if err != nil {
-		return nil, err
-	}
-	sum, count, err := s.ledgerRepo.ReconcileWallet(ctx, walletID)
+	recon, err := s.ledgerRepo.ReconcileWallet(ctx, walletID)
 	if err != nil {
 		return nil, err
 	}
 	return map[string]interface{}{
-		"wallet_id":      w.ID,
-		"cached_balance": w.Balance,
-		"ledger_balance": sum,
-		"entry_count":    count,
-		"balanced":       w.Balance == sum,
+		"wallet_id":      recon.WalletID,
+		"cached_balance": recon.CachedBalance,
+		"ledger_balance": recon.LedgerBalance,
+		"entry_count":    recon.EntryCount,
+		"balanced":       recon.CachedBalance == recon.LedgerBalance,
 		"chain_valid":    true,
 		"checked_at":     time.Now().UTC().Format(time.RFC3339),
 	}, nil
