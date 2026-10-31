@@ -36,6 +36,7 @@ services:
     environment:
       - DATABASE_URL=postgres://postgres:postgres@db:5432/payment_ledger?sslmode=disable
       - PORT=8080
+      - GIN_MODE=release
     ports:
       - "8080:8080"
 

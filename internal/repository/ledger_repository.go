@@ -2,9 +2,12 @@ package repository
 
 import (
     "context"
+    "database/sql"
+    "errors"
 
-    "github.com/jmoiron/sqlx"
+    apperrors "github.com/Anant3008/payment-ledger-system/internal/errors"
     "github.com/Anant3008/payment-ledger-system/internal/models"
+    "github.com/jmoiron/sqlx"
 )
 
 type LedgerRepository struct{ db *sqlx.DB }
@@ -34,9 +37,24 @@ func (r *LedgerRepository) ListByTransaction(ctx context.Context, txID int) ([]m
     return out, err
 }
 
-func (r *LedgerRepository) ReconcileWallet(ctx context.Context, walletID int) (int64, int, error) {
-    var sum int64
-    var count int
-    err := r.db.QueryRowxContext(ctx, "SELECT COALESCE(SUM(amount), 0), COUNT(*) FROM ledger_entries WHERE wallet_id=$1", walletID).Scan(&sum, &count)
-    return sum, count, err
+func (r *LedgerRepository) ReconcileWallet(ctx context.Context, walletID int) (*models.WalletReconciliation, error) {
+    query := `
+        SELECT
+            w.id AS wallet_id,
+            w.balance AS cached_balance,
+            COALESCE(SUM(l.amount), 0) AS ledger_balance,
+            COUNT(l.id) AS entry_count
+        FROM wallets w
+        LEFT JOIN ledger_entries l ON l.wallet_id = w.id
+        WHERE w.id = $1
+        GROUP BY w.id, w.balance
+    `
+    var recon models.WalletReconciliation
+    if err := r.db.GetContext(ctx, &recon, query, walletID); err != nil {
+        if errors.Is(err, sql.ErrNoRows) {
+            return nil, apperrors.ErrNotFound
+        }
+        return nil, err
+    }
+    return &recon, nil
 }
