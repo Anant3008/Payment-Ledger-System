@@ -44,6 +44,34 @@ func main() {
 	// Start background micro-batching worker
 	transferService.StartBatchWorker()
 
+	// Optional in-process audit reconciliation worker (useful for single-container cloud deployments)
+	if os.Getenv("RUN_AUDIT_WORKER") == "true" {
+		auditService := services.NewAuditService(conn)
+		go func() {
+			log.Println("Starting embedded audit reconciliation worker (1-minute ticker)...")
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			// Immediate initial audit check
+			if reconciled, err := auditService.ReconcileAll(context.Background()); err != nil {
+				log.Printf("ERROR: Embedded reconciliation check failed: %v", err)
+			} else if !reconciled {
+				log.Println("CRITICAL ALERT: Global ledger balance drift detected!")
+			} else {
+				log.Println("Embedded audit passed: System is perfectly reconciled.")
+			}
+			for range ticker.C {
+				if reconciled, err := auditService.ReconcileAll(context.Background()); err != nil {
+					log.Printf("ERROR: Embedded reconciliation check failed: %v", err)
+				} else if !reconciled {
+					log.Println("CRITICAL ALERT: Global ledger balance drift detected!")
+				} else {
+					log.Println("Embedded audit passed: System is perfectly reconciled.")
+				}
+				_, _ = idempRepo.SweepExpiredKeys(context.Background(), "24 hours")
+			}
+		}()
+	}
+
 	// 3. Handlers
 	walletHandler := handlers.NewWalletHandler(walletService)
 	transferHandler := handlers.NewTransferHandler(transferService)
