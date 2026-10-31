@@ -2,7 +2,7 @@
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://golang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=flat&logo=postgresql)](https://www.postgresql.org)
-[![Embedded UI](https://img.shields.io/badge/Embedded%20UI-React%20SPA-61DAFB?style=flat&logo=react)](http://localhost:8080)
+[![Embedded UI](https://img.shields.io/badge/Embedded%20UI-React%20SPA-61DAFB?style=flat&logo=react)](https://payment-ledger-app.onrender.com/#overview)
 [![CI Tests](https://img.shields.io/badge/Tests-100%25%20Passing-brightgreen?style=flat)](https://github.com/Anant3008/Payment-Ledger-System/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
