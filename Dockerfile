@@ -33,9 +33,12 @@ COPY --from=builder /src/audit-worker /audit-worker
 COPY --from=builder /src/seed /seed
 COPY --from=builder /migrate /migrate
 COPY migrations /migrations
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 ENV GIN_MODE=release
 
 EXPOSE 8080
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/server"]
